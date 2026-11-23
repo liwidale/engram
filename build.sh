@@ -54,7 +54,9 @@ if [[ $NATIVE -eq 1 ]]; then
 else
   ARCHS=(arm64 x86_64)
 fi
-rust_triple() { [[ $1 == arm64 ]] && echo aarch64-apple-darwin || echo x86_64-apple-darwin; }
+rust_triple() {
+  if [[ $1 == arm64 ]]; then echo aarch64-apple-darwin; else echo x86_64-apple-darwin; fi
+}
 
 export MACOSX_DEPLOYMENT_TARGET=14.0
 CARGO_FLAGS=(); [[ $PROFILE == release ]] && CARGO_FLAGS+=(--release)

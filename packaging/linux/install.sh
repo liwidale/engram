@@ -33,9 +33,9 @@ put() {
 }
 
 refresh() {
-  command -v update-mime-database >/dev/null && update-mime-database "$SHARE/mime" || true
-  command -v update-desktop-database >/dev/null && update-desktop-database "$SHARE/applications" || true
-  command -v gtk-update-icon-cache >/dev/null && gtk-update-icon-cache -q -t "$SHARE/icons/hicolor" || true
+  if command -v update-mime-database >/dev/null; then update-mime-database "$SHARE/mime" || true; fi
+  if command -v update-desktop-database >/dev/null; then update-desktop-database "$SHARE/applications" || true; fi
+  if command -v gtk-update-icon-cache >/dev/null; then gtk-update-icon-cache -q -t "$SHARE/icons/hicolor" || true; fi
 }
 
 if [[ $UNINSTALL -eq 1 ]]; then
@@ -54,7 +54,7 @@ for s in "${SIZES[@]}"; do
   put 644 "$HERE/icons/engram-$s.png" "$SHARE/icons/hicolor/${s}x${s}/apps/$APP_ID.png"
 done
 refresh
-command -v xdg-mime >/dev/null && xdg-mime default "$APP_ID.desktop" application/vnd.engram+json || true
+if command -v xdg-mime >/dev/null; then xdg-mime default "$APP_ID.desktop" application/vnd.engram+json || true; fi
 
 echo "Engram is installed in $PREFIX"
 case ":$PATH:" in
