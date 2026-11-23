@@ -302,7 +302,7 @@ impl Op {
                 }
                 let mut detached = Vec::new();
                 for n in &mut doc.architecture.nodes {
-                    if n.depends_on.iter().any(|d| *d == id) {
+                    if n.depends_on.contains(&id) {
                         n.depends_on.retain(|d| *d != id);
                         detached.push(n.id.clone());
                     }
