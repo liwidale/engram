@@ -578,7 +578,7 @@ mod tests {
             .validate()
             .unwrap_err()
             .to_string()
-            .contains("duplicate prompt name"));
+            .contains("Duplicate prompt name"));
         doc.prompts.pop();
         doc.architecture.nodes.push(ArchNode {
             id: "a".into(),

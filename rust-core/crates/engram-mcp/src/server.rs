@@ -496,7 +496,7 @@ impl From<EngramError> for ToolError {
 impl std::fmt::Display for ToolError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Input(m) => write!(f, "invalid arguments: {m}"),
+            Self::Input(m) => write!(f, "The arguments are not valid: {m}"),
             Self::Engram(e) => write!(f, "{e}"),
         }
     }
@@ -730,7 +730,7 @@ mod tests {
         assert!(r["content"][0]["text"]
             .as_str()
             .unwrap()
-            .contains("unknown memory category"));
+            .contains("Unknown memory category"));
         let r = tool(&mut s, "get_prompt", json!({"name":"missing"}));
         assert_eq!(r["isError"], true);
         let r = tool(&mut s, "add_architecture_node", json!({"id":"x"}));
