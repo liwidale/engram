@@ -2,12 +2,16 @@
 //! graph, the Context Builder, the Context Health auditor and the C ABI used by the macOS app.
 
 pub mod error;
+pub mod graph;
+pub mod ops;
 pub mod schema;
 pub mod store;
 pub mod text;
 pub mod time;
 
 pub use error::{EngramError, Result};
+pub use graph::{Graph, Layout, LayoutOptions};
+pub use ops::Op;
 pub use schema::*;
 pub use store::{Snapshot, Store};
 pub use text::Text;
