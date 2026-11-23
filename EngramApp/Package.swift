@@ -25,5 +25,13 @@ let package = Package(
                 .unsafeFlags(["-L", vendorLib])
             ]
         ),
+        .testTarget(
+            name: "EngramTests",
+            dependencies: ["Engram"],
+            path: "Tests/EngramTests",
+            linkerSettings: [
+                .unsafeFlags(["-L", vendorLib])
+            ]
+        ),
     ]
 )

@@ -8,7 +8,7 @@
 #   --debug      build unoptimized
 #   --native     build only for the host architecture (faster local iteration)
 #   --core-only  stop after the Rust artifacts (lib, header, engram-mcp)
-#   --test       run the Rust test suite before building
+#   --test       run the Rust and Swift test suites
 #   --install    copy Engram.app to /Applications and register it with Launch Services
 set -euo pipefail
 
@@ -82,6 +82,18 @@ lipo -create "${BINS[@]}" -output "$OUT/engram-mcp"
 
 log "Generating C header with cbindgen"
 (cd "$RUST" && cbindgen --quiet --config cbindgen.toml --crate engram-core --output "$VENDOR/include/engram_core.h")
+
+if [[ $RUN_TESTS -eq 1 ]]; then
+  log "Running Swift bridge tests"
+  # The Command Line Tools ship Swift Testing outside the default search paths.
+  TEST_FLAGS=()
+  CLT_DEV=/Library/Developer/CommandLineTools/Library/Developer
+  if [[ -d "$CLT_DEV/Frameworks/Testing.framework" ]]; then
+    TEST_FLAGS=(-Xswiftc -F -Xswiftc "$CLT_DEV/Frameworks" -Xlinker -F -Xlinker "$CLT_DEV/Frameworks"
+                -Xlinker -rpath -Xlinker "$CLT_DEV/Frameworks" -Xlinker -rpath -Xlinker "$CLT_DEV/usr/lib")
+  fi
+  swift test --package-path "$APP_PKG" ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
+fi
 
 if [[ $CORE_ONLY -eq 1 ]]; then
   log "Rust artifacts ready: $VENDOR/lib, $VENDOR/include, $OUT/engram-mcp"
