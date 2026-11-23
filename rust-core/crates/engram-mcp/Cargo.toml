@@ -1,0 +1,20 @@
+[package]
+name = "engram-mcp"
+description = "Model Context Protocol server (stdio) for .engram project memory files"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "engram-mcp"
+path = "src/main.rs"
+
+[dependencies]
+engram-core = { path = "../engram-core" }
+serde.workspace = true
+serde_json.workspace = true
+tokio = { version = "1", features = ["rt", "io-std", "io-util", "macros"] }
+
+[dev-dependencies]
+tempfile = "3"

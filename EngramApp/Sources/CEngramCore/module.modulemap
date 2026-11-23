@@ -1,0 +1,5 @@
+module CEngramCore [system] {
+    header "../../Vendor/include/engram_core.h"
+    link "engram_core"
+    export *
+}
