@@ -76,6 +76,7 @@ struct WorkspaceView: View {
         switch model.module {
         case .memory: MemoryView(model: model)
         case .architecture: ArchitectureView(model: model)
+        case .decisions: DecisionsView(model: model)
         default: EmptyState(symbol: model.module.symbol, title: model.module.title, message: "This module lands in an upcoming build.")
         }
     }
