@@ -23,9 +23,10 @@ pub fn stem(w: &str) -> String {
             let mut s = w[..n - suffix.len()].to_owned();
             s.push_str(replacement);
             if (suffix == "ing" || suffix == "ed")
-                && (s.ends_with("ch") || s.ends_with('u') || s.ends_with('v') || s.ends_with('z')) {
-                    s.push('e');
-                }
+                && (s.ends_with("ch") || s.ends_with('u') || s.ends_with('v') || s.ends_with('z'))
+            {
+                s.push('e');
+            }
             return s;
         }
     }

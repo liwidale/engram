@@ -183,9 +183,9 @@ pub fn resolve_repo_root(doc: &EngramDocument, engram_dir: &Path, override_root:
 
 fn absolutize(base: &Path, p: &str) -> PathBuf {
     let p = p.trim();
-    if let Some(rest) = p.strip_prefix("~/") {
-        if let Some(home) = std::env::var_os("HOME") {
-            return PathBuf::from(home).join(rest);
+    if let Some(rest) = p.strip_prefix("~/").or_else(|| p.strip_prefix("~\\")) {
+        if let Some(home) = crate::client_config::home_dir() {
+            return home.join(rest);
         }
     }
     let path = Path::new(p);

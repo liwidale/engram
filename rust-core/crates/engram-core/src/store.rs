@@ -134,13 +134,32 @@ impl Store {
             if let Ok(meta) = fs::metadata(&self.path) {
                 fs::set_permissions(&tmp, meta.permissions())?;
             }
-            fs::rename(&tmp, &self.path)
+            replace_file(&tmp, &self.path)
         })();
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
         }
         result.map_err(|e| EngramError::io(&self.path, e))
     }
+}
+
+#[cfg(windows)]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    let mut attempt = 0;
+    loop {
+        match fs::rename(from, to) {
+            Err(e) if e.kind() == std::io::ErrorKind::PermissionDenied && attempt < 20 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(15));
+            }
+            other => return other,
+        }
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file(from: &Path, to: &Path) -> std::io::Result<()> {
+    fs::rename(from, to)
 }
 
 struct LockGuard(File);
@@ -210,10 +229,12 @@ mod tests {
         assert_eq!(doc.revision, 1);
         assert!(store.create("Demo").is_err(), "create must not clobber");
 
-        let (_, snap) = store.transact(|d| {
-            let _: () = d.memory.push(entry("a"));
-            Ok(())
-        }).unwrap();
+        let (_, snap) = store
+            .transact(|d| {
+                let _: () = d.memory.push(entry("a"));
+                Ok(())
+            })
+            .unwrap();
         assert_eq!(snap.document.revision, 2);
         let loaded = store.load().unwrap();
         assert_eq!(loaded.document, snap.document);
@@ -255,10 +276,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().join("p.engram"));
         let doc = store.create("Demo").unwrap();
-        store.transact(|d| {
-            let _: () = d.memory.push(entry("from-agent"));
-            Ok(())
-        }).unwrap();
+        store
+            .transact(|d| {
+                let _: () = d.memory.push(entry("from-agent"));
+                Ok(())
+            })
+            .unwrap();
         let err = store.replace(doc.clone(), Some(doc.revision)).unwrap_err();
         assert_eq!(err.code(), "conflict");
         let snap = store.replace(doc, None).unwrap();

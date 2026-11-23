@@ -1,4 +1,5 @@
 pub mod analysis;
+pub mod client_config;
 pub mod context;
 pub mod error;
 pub mod ffi;

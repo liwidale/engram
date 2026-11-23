@@ -12,7 +12,6 @@ use serde::Serialize;
 use serde_json::{json, Value};
 use std::ffi::{c_char, CStr, CString};
 use std::panic::{catch_unwind, AssertUnwindSafe};
-use std::path::Path;
 use std::sync::Mutex;
 
 pub struct EngramHandle {
@@ -253,48 +252,7 @@ pub unsafe extern "C" fn engram_mcp_config(handle: *const EngramHandle, server_b
         let h = handle_ref(handle)?;
         let binary = str_arg(server_binary, "server_binary")?;
         let name = h.snapshot().document.project.name.clone();
-        Ok(mcp_config(&name, h.store.path(), binary))
-    })
-}
-
-pub fn mcp_config(project_name: &str, file: &Path, binary: &str) -> Value {
-    let file = std::fs::canonicalize(file).unwrap_or_else(|_| file.to_path_buf());
-    let file = file.to_string_lossy();
-    let slug: String = project_name
-        .chars()
-        .map(|c| {
-            if c.is_ascii_alphanumeric() {
-                c.to_ascii_lowercase()
-            } else {
-                '-'
-            }
-        })
-        .collect::<String>()
-        .split('-')
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-    let server_name = if slug.is_empty() {
-        "engram".to_owned()
-    } else {
-        format!("engram-{slug}")
-    };
-    let config = json!({
-        "mcpServers": {
-            server_name.clone(): { "type": "stdio", "command": binary, "args": ["--file", file] }
-        }
-    });
-    let quote = |s: &str| {
-        if s.chars().all(|c| c.is_ascii_alphanumeric() || "/._-+:@".contains(c)) {
-            s.to_owned()
-        } else {
-            format!("'{}'", s.replace('\'', "'\\''"))
-        }
-    };
-    json!({
-        "server_name": server_name,
-        "json": serde_json::to_string_pretty(&config).unwrap_or_default(),
-        "claude_code_command": format!("claude mcp add {} -- {} --file {}", server_name, quote(binary), quote(&file)),
+        Ok(crate::client_config::mcp_config(&name, h.store.path(), binary))
     })
 }
 
