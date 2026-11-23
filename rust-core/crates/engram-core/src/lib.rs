@@ -6,6 +6,7 @@ pub mod context;
 pub mod error;
 pub mod graph;
 pub mod health;
+pub mod render;
 pub mod ops;
 pub mod schema;
 pub mod store;
