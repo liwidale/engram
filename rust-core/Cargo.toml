@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/engram-core", "crates/engram-mcp"]
+members = ["crates/engram-core", "crates/engram-mcp", "crates/engram-desktop"]
 
 [workspace.package]
 version = "0.1.0"

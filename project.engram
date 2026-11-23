@@ -1,12 +1,12 @@
 {
   "format": "engram",
   "version": 1,
-  "revision": 30,
+  "revision": 31,
   "project": {
     "name": "Engram",
     "description": "",
     "created_at": "2026-11-23T08:15:17Z",
-    "updated_at": "2026-11-23T12:50:29Z"
+    "updated_at": "2026-11-23T13:21:47Z"
   },
   "memory": [
     {
@@ -119,12 +119,13 @@
       "key": "live-reload-check",
       "category": "note",
       "status": "active",
-      "content": "The app live-reloads when engram-mcp writes the open file: the watcher re-arms after each atomic rename and only refreshes when the on-disk fingerprint differs from the app's own snapshot. Covered by `EngramApp/Tests/EngramTests/BridgeTests.swift`.",
+      "content": "The app live-reloads when engram-mcp writes the open file: the macOS app re-arms a file watcher after each atomic rename, the Windows and Linux app polls the file fingerprint. Both refresh only when the bytes on disk differ from their own snapshot.",
       "files": [
-        "EngramApp/Sources/Engram/Core/FileWatcher.swift"
+        "EngramApp/Sources/Engram/Core/FileWatcher.swift",
+        "rust-core/crates/engram-desktop/src/workspace.rs"
       ],
       "created_at": "2026-11-23T12:50:12Z",
-      "updated_at": "2026-11-23T12:50:29Z"
+      "updated_at": "2026-11-23T13:21:47Z"
     }
   ],
   "architecture": {
