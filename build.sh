@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
-# Builds the Engram toolchain end to end:
-#   1. engram-core static library (universal arm64 + x86_64) and C header (cbindgen)
-#   2. engram-mcp stdio server binary (universal)
-#   3. Engram.app (SwiftPM, per-arch then lipo) with engram-mcp embedded in Contents/MacOS
-#
-# Usage: ./build.sh [--debug] [--native] [--core-only] [--test] [--install]
-#   --debug      build unoptimized
-#   --native     build only for the host architecture (faster local iteration)
-#   --core-only  stop after the Rust artifacts (lib, header, engram-mcp)
-#   --test       run the Rust and Swift test suites
-#   --install    copy Engram.app to /Applications and register it with Launch Services
 set -euo pipefail
+
+usage() {
+  cat <<'USAGE'
+Usage: ./build.sh [--debug] [--native] [--core-only] [--test] [--install]
+
+Builds libengram_core.a and its C header, engram-mcp and Engram.app (macOS).
+
+  --debug      build unoptimized
+  --native     build only for the host architecture
+  --core-only  stop after the Rust artifacts
+  --test       run the Rust and Swift test suites
+  --install    copy Engram.app to /Applications and register it with Launch Services
+USAGE
+}
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 RUST="$ROOT/rust-core"
@@ -27,8 +30,8 @@ for arg in "$@"; do
     --core-only) CORE_ONLY=1 ;;
     --test) RUN_TESTS=1 ;;
     --install) INSTALL=1 ;;
-    -h|--help) sed -n '2,13p' "$0"; exit 0 ;;
-    *) echo "unknown option: $arg" >&2; exit 2 ;;
+    -h|--help) usage; exit 0 ;;
+    *) echo "unknown option: $arg" >&2; usage >&2; exit 2 ;;
   esac
 done
 
@@ -61,7 +64,6 @@ if [[ $RUN_TESTS -eq 1 ]]; then
   (cd "$RUST" && cargo test --workspace)
 fi
 
-# --- Rust ---------------------------------------------------------------------
 LIBS=(); BINS=()
 for arch in "${ARCHS[@]}"; do
   triple="$(rust_triple "$arch")"
@@ -85,7 +87,6 @@ log "Generating C header with cbindgen"
 
 if [[ $RUN_TESTS -eq 1 ]]; then
   log "Running Swift bridge tests"
-  # The Command Line Tools ship Swift Testing outside the default search paths.
   TEST_FLAGS=()
   CLT_DEV=/Library/Developer/CommandLineTools/Library/Developer
   if [[ -d "$CLT_DEV/Frameworks/Testing.framework" ]]; then
@@ -100,7 +101,6 @@ if [[ $CORE_ONLY -eq 1 ]]; then
   exit 0
 fi
 
-# --- Swift app ----------------------------------------------------------------
 APP_BINS=()
 for arch in "${ARCHS[@]}"; do
   log "Building Engram.app executable ($arch, $PROFILE)"

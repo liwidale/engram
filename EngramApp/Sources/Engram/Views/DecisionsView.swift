@@ -122,8 +122,6 @@ private struct DecisionRow: View {
     }
 }
 
-// MARK: - Editor
-
 private struct DecisionDraft: Equatable {
     var title: String
     var context: String
@@ -141,7 +139,6 @@ private struct DecisionDraft: Equatable {
         related = d.related
     }
 
-    /// Rows with an empty option are editing scratch space, not data.
     var cleanRejected: [RejectedAlternative] {
         rejected.filter { !$0.option.trimmingCharacters(in: .whitespaces).isEmpty }
     }
@@ -381,8 +378,6 @@ private struct DecisionEditor: View {
     }
 }
 
-// MARK: - Composer
-
 struct DecisionComposer: View {
     enum Seed: Identifiable {
         case new
@@ -473,7 +468,6 @@ struct DecisionComposer: View {
     }
 }
 
-/// Wrapping horizontal layout for chips.
 struct FlowLayout: Layout {
     var spacing: CGFloat = 6
 

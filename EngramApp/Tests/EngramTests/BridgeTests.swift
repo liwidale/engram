@@ -2,7 +2,6 @@ import Foundation
 import Testing
 @testable import Engram
 
-/// Exercises the real Swift ⇄ Rust bridge against real files on disk.
 @MainActor
 struct BridgeTests {
     let dir: URL
@@ -29,7 +28,7 @@ struct BridgeTests {
         try e.apply(.updateHandoff(objective: "Ship", progress: [ProgressItem(description: "did", files: ["a.rs"], verified: false)], hypotheses: ["h"], blockers: [], notes: "n\nm", nextStep: "next", updatedBy: "tests"))
 
         let doc = try e.document().document
-        #expect(doc.revision == 9) // create + 8 operations
+        #expect(doc.revision == 9)
         let db = try #require(doc.memoryEntry("db"))
         #expect(db.content == "Postgres 16\n\n- pooled via pgbouncer")
         #expect(db.pinned && db.tags == ["data"] && db.files == ["src/db.rs"] && db.supersedes == "old")
@@ -94,7 +93,7 @@ struct BridgeTests {
 
     @Test func watcherSeesExternalAtomicWritesRepeatedly() async throws {
         let app = try fresh("watched.engram")
-        let agent = try EngramEngine.open(app.url) // separate handle, like engram-mcp
+        let agent = try EngramEngine.open(app.url)
         var events = 0
         let watcher = FileWatcher(url: app.url) { events += 1 }
         watcher.start()
@@ -111,7 +110,6 @@ struct BridgeTests {
             #expect(r.changed)
             #expect(try app.document().document.memoryEntry("k\(i)") != nil)
         }
-        // The app's own write leaves its snapshot in sync: no spurious reload.
         try app.apply(.upsertMemory(key: "mine", category: .note, content: "x"))
         #expect(try app.reload().changed == false)
     }

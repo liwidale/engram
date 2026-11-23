@@ -1,5 +1,3 @@
-// Renders the Engram app icon into an .iconset directory.
-// Usage: swift tools/make-icon.swift <out.iconset> && iconutil -c icns <out.iconset>
 import AppKit
 
 let out = URL(fileURLWithPath: CommandLine.arguments.dropFirst().first ?? "AppIcon.iconset")
@@ -13,7 +11,6 @@ func render(_ px: Int) -> Data {
     NSGraphicsContext.saveGraphicsState()
     NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
     let s = CGFloat(px)
-    // macOS icon grid: 824/1024 body with ~185/1024 corner radius.
     let inset = s * 100 / 1024
     let body = NSRect(x: inset, y: inset, width: s - 2 * inset, height: s - 2 * inset)
     let path = NSBezierPath(roundedRect: body, xRadius: s * 185 / 1024, yRadius: s * 185 / 1024)
@@ -22,7 +19,6 @@ func render(_ px: Int) -> Data {
         NSColor(red: 0.47, green: 0.36, blue: 0.97, alpha: 1),
     ])!.draw(in: path, angle: 90)
 
-    // Graph motif: three linked nodes.
     let nodes = [CGPoint(x: 0.5, y: 0.70), CGPoint(x: 0.31, y: 0.36), CGPoint(x: 0.69, y: 0.36)]
         .map { CGPoint(x: $0.x * s, y: $0.y * s) }
     let edges = NSBezierPath()

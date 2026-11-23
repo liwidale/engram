@@ -33,7 +33,6 @@ enum Module: String, CaseIterable, Identifiable, Hashable {
     var shortcut: KeyEquivalent { KeyEquivalent(Character(String(Module.allCases.firstIndex(of: self)! + 1))) }
 }
 
-/// One-shot requests from menus / the command palette, handled by the module views.
 enum Intent: Equatable {
     case newMemory, newDecision, newPrompt, newNode, focusTask
 }
@@ -45,14 +44,13 @@ struct Banner: Identifiable, Equatable {
     var message: String
 }
 
-/// Context Builder inputs, kept per window so switching modules does not lose them.
 struct ContextBuilderState: Equatable {
     var task = ""
     var maxTokens = 4000
     var autoRank = true
     var includeHandoff = true
-    var forced: Set<String> = []     // "kind:id"
-    var excluded: Set<String> = []   // "kind:id"
+    var forced: Set<String> = []
+    var excluded: Set<String> = []
     var prompt: String?
     var promptVars: [String: String] = [:]
 }
@@ -112,7 +110,6 @@ final class WorkspaceModel {
     var projectName: String { document?.project.name ?? url.deletingPathExtension().lastPathComponent }
     var revision: UInt64 { document?.revision ?? 0 }
 
-    /// Re-reads the cached snapshot from the engine (cheap; no disk access).
     func refresh() {
         guard let engine else { return }
         do {
@@ -123,8 +120,6 @@ final class WorkspaceModel {
         }
     }
 
-    /// Called by the file watcher. Our own writes leave the fingerprint unchanged, so only
-    /// edits from another process (an agent via engram-mcp, git checkout, ...) refresh.
     private func fileChangedOnDisk() {
         guard let engine else { return }
         do {
@@ -149,7 +144,6 @@ final class WorkspaceModel {
         }
     }
 
-    /// Applies a mutation through engram-core and refreshes the UI.
     @discardableResult
     func perform(_ op: EngramOp, success: String? = nil) -> JSONValue? {
         guard let engine else { return nil }
@@ -168,8 +162,6 @@ final class WorkspaceModel {
         }
     }
 
-    // MARK: Save routing (Cmd+S)
-
     func registerCommit(_ id: String, _ handler: @escaping () -> Void) { commitHandlers[id] = handler }
     func unregisterCommit(_ id: String) { commitHandlers.removeValue(forKey: id) }
 
@@ -177,8 +169,6 @@ final class WorkspaceModel {
         commitHandlers.values.forEach { $0() }
         show(.success, "Saved · revision \(revision)")
     }
-
-    // MARK: Banners & clipboard
 
     func show(_ kind: Banner.Kind, _ message: String) {
         banner = Banner(kind: kind, message: message)
@@ -196,10 +186,6 @@ final class WorkspaceModel {
         show(.success, message)
     }
 
-    // MARK: MCP
-
-    /// The engram-mcp binary MCP clients should launch: the installed app if present,
-    /// otherwise the binary embedded in the running bundle (development builds).
     var mcpBinaryPath: String {
         let installed = "/Applications/Engram.app/Contents/MacOS/engram-mcp"
         let bundled = Bundle.main.bundleURL.appendingPathComponent("Contents/MacOS/engram-mcp").path
@@ -222,8 +208,6 @@ final class WorkspaceModel {
         copy(cfg.json, message: "MCP config copied · paste into claude_desktop_config.json or .mcp.json")
     }
 
-    // MARK: Context Health
-
     var repoRoot: String? { document?.project.repoRoot }
 
     func runAudit() {
@@ -240,11 +224,8 @@ final class WorkspaceModel {
         }
     }
 
-    // MARK: Navigation
-
     func request(_ intent: Intent, in module: Module) {
         self.module = module
-        // Deliver after the module view is on screen.
         DispatchQueue.main.async { self.intent = intent }
     }
 
@@ -259,7 +240,6 @@ final class WorkspaceModel {
         }
     }
 
-    /// Absolute codebase root for display and Finder actions.
     var resolvedRepoRoot: URL {
         let base = url.deletingLastPathComponent()
         guard let root = repoRoot, !root.isEmpty else { return base }

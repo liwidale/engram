@@ -1,12 +1,8 @@
 import Foundation
 
-/// Watches a file with a kqueue-backed `DispatchSource` and reports (debounced) changes.
-///
-/// engram-core writes atomically (temp file + rename), which replaces the inode we are
-/// watching. On `.delete` / `.rename` the watcher re-opens the path and re-arms itself.
 final class FileWatcher: @unchecked Sendable {
     private let url: URL
-    private let queue = DispatchQueue(label: "app.engram.file-watcher")
+    private let queue = DispatchQueue(label: "com.liwidale.engram.file-watcher")
     private let onChange: @MainActor () -> Void
     private let lock = NSLock()
     private var source: DispatchSourceFileSystemObject?
@@ -41,7 +37,6 @@ final class FileWatcher: @unchecked Sendable {
         source = nil
         let fd = open(url.path, O_EVTONLY)
         guard fd >= 0 else {
-            // The file may be mid-rename; retry with backoff for a while.
             if attempt < 40 {
                 queue.asyncAfter(deadline: .now() + .milliseconds(min(50 * (attempt + 1), 1000))) { [weak self] in
                     self?.arm(attempt: attempt + 1)

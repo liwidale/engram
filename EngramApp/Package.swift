@@ -2,7 +2,6 @@
 import PackageDescription
 import Foundation
 
-// libengram_core.a and engram_core.h are produced by ../build.sh into Vendor/.
 let packageRoot = URL(fileURLWithPath: #filePath).deletingLastPathComponent().path
 let vendorLib = "\(packageRoot)/Vendor/lib"
 

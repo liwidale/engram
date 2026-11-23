@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// Native Markdown preview: block structure (headings, lists, task lists, quotes, fenced
-/// code, rules, tables as text) rendered with SwiftUI, inline styling via AttributedString.
 struct MarkdownView: View {
     var text: String
 

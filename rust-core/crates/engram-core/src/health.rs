@@ -1,5 +1,3 @@
-//! Context Health: audits an `.engram` document against the linked codebase.
-
 use crate::analysis::{contains_phrase, polarity, sentences, terms, Polarity};
 use crate::graph::Graph;
 use crate::schema::*;
@@ -12,8 +10,24 @@ use std::path::{Path, PathBuf};
 const STALE_HANDOFF_DAYS: i64 = 7;
 const MAX_INDEXED_FILES: usize = 60_000;
 const SKIP_DIRS: &[&str] = &[
-    ".git", ".hg", ".svn", "node_modules", "target", ".build", "build", "dist", "DerivedData", ".next", ".venv",
-    "venv", "__pycache__", "Pods", ".gradle", ".idea", ".swiftpm", "vendor",
+    ".git",
+    ".hg",
+    ".svn",
+    "node_modules",
+    "target",
+    ".build",
+    "build",
+    "dist",
+    "DerivedData",
+    ".next",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "Pods",
+    ".gradle",
+    ".idea",
+    ".swiftpm",
+    "vendor",
 ];
 const CODE_EXTENSIONS: &[&str] = &[
     "rs", "swift", "ts", "tsx", "js", "jsx", "mjs", "cjs", "py", "go", "java", "kt", "kts", "rb", "php", "cs", "c",
@@ -53,19 +67,34 @@ pub struct EntityRef {
 
 impl EntityRef {
     fn memory(id: &str) -> Self {
-        Self { kind: "memory", id: id.into() }
+        Self {
+            kind: "memory",
+            id: id.into(),
+        }
     }
     fn decision(id: &str) -> Self {
-        Self { kind: "decision", id: id.into() }
+        Self {
+            kind: "decision",
+            id: id.into(),
+        }
     }
     fn node(id: &str) -> Self {
-        Self { kind: "node", id: id.into() }
+        Self {
+            kind: "node",
+            id: id.into(),
+        }
     }
     fn handoff() -> Self {
-        Self { kind: "handoff", id: "handoff".into() }
+        Self {
+            kind: "handoff",
+            id: "handoff".into(),
+        }
     }
     fn project() -> Self {
-        Self { kind: "project", id: "project".into() }
+        Self {
+            kind: "project",
+            id: "project".into(),
+        }
     }
 }
 
@@ -128,14 +157,24 @@ impl Auditor<'_> {
         if self.issues.iter().any(|i| i.id == id) {
             return;
         }
-        self.issues.push(Issue { id, severity, kind, message, subject, related, path, suggestion });
+        self.issues.push(Issue {
+            id,
+            severity,
+            kind,
+            message,
+            subject,
+            related,
+            path,
+            suggestion,
+        });
     }
 }
 
-/// Resolves the repository root: explicit override, then `project.repo_root`, then the
-/// directory that contains the `.engram` file.
 pub fn resolve_repo_root(doc: &EngramDocument, engram_dir: &Path, override_root: Option<&str>) -> (PathBuf, bool) {
-    let configured = override_root.map(str::trim).filter(|s| !s.is_empty()).or(doc.project.repo_root.as_deref());
+    let configured = override_root
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .or(doc.project.repo_root.as_deref());
     match configured {
         Some(root) => (absolutize(engram_dir, root), true),
         None => (engram_dir.to_path_buf(), false),
@@ -160,7 +199,11 @@ fn absolutize(base: &Path, p: &str) -> PathBuf {
 pub fn audit(doc: &EngramDocument, engram_dir: &Path, override_root: Option<&str>) -> HealthReport {
     let (root, explicit) = resolve_repo_root(doc, engram_dir, override_root);
     let repo_found = root.is_dir();
-    let mut a = Auditor { doc, issues: Vec::new(), summary: HealthSummary::default() };
+    let mut a = Auditor {
+        doc,
+        issues: Vec::new(),
+        summary: HealthSummary::default(),
+    };
 
     if !repo_found {
         a.push(
@@ -170,7 +213,14 @@ pub fn audit(doc: &EngramDocument, engram_dir: &Path, override_root: Option<&str
             format!("Linked codebase directory does not exist: {}", root.display()),
             None,
             Some(root.display().to_string()),
-            Some(if explicit { "Update the repository root in Context Health." } else { "Link the codebase directory." }.into()),
+            Some(
+                if explicit {
+                    "Update the repository root in Context Health."
+                } else {
+                    "Link the codebase directory."
+                }
+                .into(),
+            ),
         );
     } else {
         check_paths(&mut a, &root);
@@ -180,7 +230,11 @@ pub fn audit(doc: &EngramDocument, engram_dir: &Path, override_root: Option<&str
     check_contradictions(&mut a);
     check_hygiene(&mut a);
 
-    a.issues.sort_by(|x, y| x.severity.cmp(&y.severity).then_with(|| x.subject.id.cmp(&y.subject.id)));
+    a.issues.sort_by(|x, y| {
+        x.severity
+            .cmp(&y.severity)
+            .then_with(|| x.subject.id.cmp(&y.subject.id))
+    });
     for i in &a.issues {
         match i.severity {
             Severity::Error => a.summary.errors += 1,
@@ -206,15 +260,12 @@ pub fn audit(doc: &EngramDocument, engram_dir: &Path, override_root: Option<&str
     }
 }
 
-// --- Paths --------------------------------------------------------------------------------
-
 struct PathRef {
     subject: EntityRef,
     path: String,
     explicit: bool,
 }
 
-/// Inline code spans in Markdown that look like repository paths.
 pub fn inline_paths(markdown: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut in_fence = false;
@@ -244,10 +295,11 @@ fn normalize_path_candidate(raw: &str) -> Option<String> {
     if s.is_empty() || s.len() > 240 || s.contains(char::is_whitespace) || s.contains("://") || s.starts_with('-') {
         return None;
     }
-    if s.contains(['*', '?', '{', '}', '$', '<', '>', '(', ')', '=', ',', '\'', '"', '|', '@']) {
+    if s.contains([
+        '*', '?', '{', '}', '$', '<', '>', '(', ')', '=', ',', '\'', '"', '|', '@',
+    ]) {
         return None;
     }
-    // Strip `:12`, `:12:4` and `#L12` location suffixes.
     let s = s.split("#L").next().unwrap_or(s);
     let s = s.trim_end_matches(|c: char| c.is_ascii_digit() || c == ':');
     let s = s.trim_end_matches(['.', ',']);
@@ -263,17 +315,25 @@ fn collect_path_refs(doc: &EngramDocument) -> Vec<PathRef> {
     let mut add = |subject: EntityRef, path: &str, explicit: bool| {
         let path = path.trim();
         if !path.is_empty() {
-            refs.push(PathRef { subject, path: path.to_owned(), explicit });
+            refs.push(PathRef {
+                subject,
+                path: path.to_owned(),
+                explicit,
+            });
         }
     };
     for m in doc.memory.iter().filter(|m| m.is_active()) {
         m.files.iter().for_each(|f| add(EntityRef::memory(&m.key), f, true));
-        inline_paths(m.body()).iter().for_each(|f| add(EntityRef::memory(&m.key), f, false));
+        inline_paths(m.body())
+            .iter()
+            .for_each(|f| add(EntityRef::memory(&m.key), f, false));
     }
     for d in doc.decisions.iter().filter(|d| d.is_active()) {
         d.files.iter().for_each(|f| add(EntityRef::decision(&d.id), f, true));
         for t in [&d.context, &d.decision, &d.consequences] {
-            inline_paths(t).iter().for_each(|f| add(EntityRef::decision(&d.id), f, false));
+            inline_paths(t)
+                .iter()
+                .for_each(|f| add(EntityRef::decision(&d.id), f, false));
         }
     }
     for n in &doc.architecture.nodes {
@@ -331,7 +391,10 @@ fn check_paths(a: &mut Auditor, root: &Path) {
             format!("File may have moved: {}", c.join(", "))
         });
         let what = match r.subject.kind {
-            "node" => format!("Architecture node '{}' points at a path that no longer exists", r.subject.id),
+            "node" => format!(
+                "Architecture node '{}' points at a path that no longer exists",
+                r.subject.id
+            ),
             "handoff" => "Handoff progress references a missing file".to_owned(),
             k => format!("{} '{}' references a missing path", capitalize(k), r.subject.id),
         };
@@ -349,10 +412,10 @@ fn check_paths(a: &mut Auditor, root: &Path) {
 
 fn capitalize(s: &str) -> String {
     let mut c = s.chars();
-    c.next().map(|f| f.to_uppercase().chain(c).collect()).unwrap_or_default()
+    c.next()
+        .map(|f| f.to_uppercase().chain(c).collect())
+        .unwrap_or_default()
 }
-
-// --- References ---------------------------------------------------------------------------
 
 fn check_references(a: &mut Auditor) {
     let doc = a.doc;
@@ -363,7 +426,10 @@ fn check_references(a: &mut Auditor) {
             Severity::Error,
             IssueKind::ZombieReference,
             EntityRef::node(&e.from),
-            format!("'{}' depends on '{}', which is not in the architecture map", e.from, e.to),
+            format!(
+                "'{}' depends on '{}', which is not in the architecture map",
+                e.from, e.to
+            ),
             None,
             None,
             Some(format!("Add node '{}' or remove the dependency.", e.to)),
@@ -411,11 +477,16 @@ fn check_references(a: &mut Auditor) {
                         "{} relates to superseded memory '{}'{}",
                         d.id,
                         m.key,
-                        m.superseded_by.as_ref().map(|b| format!(" (replaced by '{b}')")).unwrap_or_default()
+                        m.superseded_by
+                            .as_ref()
+                            .map(|b| format!(" (replaced by '{b}')"))
+                            .unwrap_or_default()
                     ),
                     Some(EntityRef::memory(&m.key)),
                     None,
-                    m.superseded_by.as_ref().map(|b| format!("Point the relation at '{b}'.")),
+                    m.superseded_by
+                        .as_ref()
+                        .map(|b| format!("Point the relation at '{b}'.")),
                 );
             }
         }
@@ -434,11 +505,13 @@ fn check_references(a: &mut Auditor) {
             }
         }
     }
-    // Active entries that still mention superseded memory keys inline.
     let superseded: Vec<&MemoryEntry> = doc.memory.iter().filter(|m| !m.is_active()).collect();
     for m in doc.memory.iter().filter(|m| m.is_active()) {
         for s in &superseded {
-            if s.superseded_by.as_deref() != Some(m.key.as_str()) && m.supersedes.as_deref() != Some(s.key.as_str()) && m.content.contains(&format!("`{}`", s.key)) {
+            if s.superseded_by.as_deref() != Some(m.key.as_str())
+                && m.supersedes.as_deref() != Some(s.key.as_str())
+                && m.content.contains(&format!("`{}`", s.key))
+            {
                 a.push(
                     Severity::Warning,
                     IssueKind::ZombieReference,
@@ -452,8 +525,6 @@ fn check_references(a: &mut Auditor) {
         }
     }
 }
-
-// --- Deprecated ADRs ----------------------------------------------------------------------
 
 fn check_deprecated(a: &mut Auditor) {
     let doc = a.doc;
@@ -470,7 +541,10 @@ fn check_deprecated(a: &mut Auditor) {
             );
         }
         for d in doc.decisions.iter().filter(|d| d.is_active() && d.id != old.id) {
-            let is_successor = old.superseded_by.as_deref().is_some_and(|s| s.eq_ignore_ascii_case(&d.id));
+            let is_successor = old
+                .superseded_by
+                .as_deref()
+                .is_some_and(|s| s.eq_ignore_ascii_case(&d.id));
             let refs = d.related.iter().any(|r| r.eq_ignore_ascii_case(&old.id))
                 || contains_phrase(&format!("{} {}", d.context, d.decision), &old.id);
             if refs && !is_successor {
@@ -485,7 +559,11 @@ fn check_deprecated(a: &mut Auditor) {
                 );
             }
         }
-        for m in doc.memory.iter().filter(|m| m.is_active() && contains_phrase(&m.content, &old.id)) {
+        for m in doc
+            .memory
+            .iter()
+            .filter(|m| m.is_active() && contains_phrase(&m.content, &old.id))
+        {
             a.push(
                 Severity::Warning,
                 IssueKind::DeprecatedReference,
@@ -510,7 +588,11 @@ fn check_deprecated(a: &mut Auditor) {
             );
         }
     }
-    for d in doc.decisions.iter().filter(|d| d.is_active() && d.superseded_by.is_some()) {
+    for d in doc
+        .decisions
+        .iter()
+        .filter(|d| d.is_active() && d.superseded_by.is_some())
+    {
         a.push(
             Severity::Warning,
             IssueKind::DeprecatedDecision,
@@ -523,8 +605,6 @@ fn check_deprecated(a: &mut Auditor) {
     }
 }
 
-// --- Contradictions -----------------------------------------------------------------------
-
 struct Directive {
     owner: EntityRef,
     text: String,
@@ -533,18 +613,50 @@ struct Directive {
 }
 
 fn directive_terms(sentence: &str) -> HashSet<String> {
-    const VERBS: &[&str] = &["use", "always", "never", "prefer", "avoid", "require", "required", "allow", "allowed", "ban", "forbid", "forbidden", "stop", "longer", "only", "everywhere", "anywhere", "instead", "adopt"];
-    terms(sentence).into_iter().filter(|t| !VERBS.contains(&t.as_str())).collect()
+    const VERBS: &[&str] = &[
+        "use",
+        "always",
+        "never",
+        "prefer",
+        "avoid",
+        "require",
+        "required",
+        "allow",
+        "allowed",
+        "ban",
+        "forbid",
+        "forbidden",
+        "stop",
+        "longer",
+        "only",
+        "everywhere",
+        "anywhere",
+        "instead",
+        "adopt",
+    ];
+    terms(sentence)
+        .into_iter()
+        .filter(|t| !VERBS.contains(&t.as_str()))
+        .collect()
 }
 
 fn check_contradictions(a: &mut Auditor) {
     let doc = a.doc;
     let mut directives: Vec<Directive> = Vec::new();
-    for m in doc.memory.iter().filter(|m| m.is_active() && m.category != MemoryCategory::Note) {
+    for m in doc
+        .memory
+        .iter()
+        .filter(|m| m.is_active() && m.category != MemoryCategory::Note)
+    {
         for s in sentences(m.body()) {
             let p = polarity(&s);
             if p != Polarity::Neutral {
-                directives.push(Directive { owner: EntityRef::memory(&m.key), terms: directive_terms(&s), polarity: p, text: s });
+                directives.push(Directive {
+                    owner: EntityRef::memory(&m.key),
+                    terms: directive_terms(&s),
+                    polarity: p,
+                    text: s,
+                });
             }
         }
     }
@@ -552,7 +664,12 @@ fn check_contradictions(a: &mut Auditor) {
         for s in sentences(&d.decision) {
             let p = polarity(&s);
             if p != Polarity::Neutral {
-                directives.push(Directive { owner: EntityRef::decision(&d.id), terms: directive_terms(&s), polarity: p, text: s });
+                directives.push(Directive {
+                    owner: EntityRef::decision(&d.id),
+                    terms: directive_terms(&s),
+                    polarity: p,
+                    text: s,
+                });
             }
         }
     }
@@ -570,7 +687,10 @@ fn check_contradictions(a: &mut Auditor) {
                     Severity::Error,
                     IssueKind::Contradiction,
                     x.owner.clone(),
-                    format!("Contradicting rules: \u{201c}{}\u{201d} vs \u{201c}{}\u{201d}", x.text, y.text),
+                    format!(
+                        "Contradicting rules: \u{201c}{}\u{201d} vs \u{201c}{}\u{201d}",
+                        x.text, y.text
+                    ),
                     Some(y.owner.clone()),
                     None,
                     Some("Supersede one of the entries so only one rule stays canonical.".into()),
@@ -578,16 +698,25 @@ fn check_contradictions(a: &mut Auditor) {
             }
         }
     }
-    // Memory (or another ADR) endorsing an alternative that an active ADR rejected.
     for d in doc.decisions.iter().filter(|d| d.is_active()) {
-        for alt in d.rejected_alternatives.iter().filter(|alt| !alt.option.is_empty() && alt.option.split_whitespace().count() <= 5) {
-            for dir in directives.iter().filter(|x| x.polarity == Polarity::Positive && x.owner != EntityRef::decision(&d.id)) {
+        for alt in d
+            .rejected_alternatives
+            .iter()
+            .filter(|alt| !alt.option.is_empty() && alt.option.split_whitespace().count() <= 5)
+        {
+            for dir in directives
+                .iter()
+                .filter(|x| x.polarity == Polarity::Positive && x.owner != EntityRef::decision(&d.id))
+            {
                 if contains_phrase(&dir.text, &alt.option) && !contains_phrase(&d.decision, &alt.option) {
                     a.push(
                         Severity::Warning,
                         IssueKind::RejectedAlternativeEndorsed,
                         dir.owner.clone(),
-                        format!("\u{201c}{}\u{201d} endorses {}, which {} rejected: {}", dir.text, alt.option, d.id, alt.reason),
+                        format!(
+                            "\u{201c}{}\u{201d} endorses {}, which {} rejected: {}",
+                            dir.text, alt.option, d.id, alt.reason
+                        ),
                         Some(EntityRef::decision(&d.id)),
                         None,
                         Some(format!("Align with {} or log a new decision that supersedes it.", d.id)),
@@ -598,8 +727,6 @@ fn check_contradictions(a: &mut Auditor) {
     }
 }
 
-// --- Hygiene ------------------------------------------------------------------------------
-
 fn check_hygiene(a: &mut Auditor) {
     let doc = a.doc;
     for m in &doc.memory {
@@ -608,7 +735,10 @@ fn check_hygiene(a: &mut Auditor) {
                 Severity::Warning,
                 IssueKind::SupersededTagMismatch,
                 EntityRef::memory(&m.key),
-                format!("'{}' is tagged [SUPERSEDED] but still active, so it is still fed to agents", m.key),
+                format!(
+                    "'{}' is tagged [SUPERSEDED] but still active, so it is still fed to agents",
+                    m.key
+                ),
                 None,
                 None,
                 Some("Mark it superseded or remove the tag.".into()),
@@ -626,7 +756,15 @@ fn check_hygiene(a: &mut Auditor) {
             );
         }
         if m.is_active() && m.body().trim().is_empty() {
-            a.push(Severity::Info, IssueKind::EmptyContent, EntityRef::memory(&m.key), format!("'{}' has no content", m.key), None, None, None);
+            a.push(
+                Severity::Info,
+                IssueKind::EmptyContent,
+                EntityRef::memory(&m.key),
+                format!("'{}' has no content", m.key),
+                None,
+                None,
+                None,
+            );
         }
     }
     for cycle in Graph::new(&doc.architecture).cycles() {
@@ -674,7 +812,10 @@ mod tests {
     #[test]
     fn inline_path_extraction() {
         let md = "See `src/api/routes.ts:42` and `Cargo.toml`, not `npm run build` or `https://x.io/a/b`.\n```\n`ignored/in/fence.rs`\n```\nAlso `crates/core/` and `foo`.";
-        assert_eq!(inline_paths(md), vec!["src/api/routes.ts", "Cargo.toml", "crates/core/"]);
+        assert_eq!(
+            inline_paths(md),
+            vec!["src/api/routes.ts", "Cargo.toml", "crates/core/"]
+        );
     }
 
     #[test]
@@ -683,7 +824,10 @@ mod tests {
         fs::create_dir_all(dir.path().join("src")).unwrap();
         fs::write(dir.path().join("src/main.rs"), "").unwrap();
         let mut doc = EngramDocument::new("ok");
-        apply(&mut doc, json!({"op":"upsert_memory","key":"entry","category":"rule","content":"Entry point lives in `src/main.rs`.","files":["src"]}));
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"entry","category":"rule","content":"Entry point lives in `src/main.rs`.","files":["src"]}),
+        );
         apply(&mut doc, json!({"op":"add_architecture_node","id":"core","path":"src"}));
         let r = audit(&doc, dir.path(), None);
         assert_eq!(r.issues.len(), 0, "{:#?}", r.issues);
@@ -697,13 +841,28 @@ mod tests {
         fs::create_dir_all(dir.path().join("pkg/auth")).unwrap();
         fs::write(dir.path().join("pkg/auth/session.go"), "").unwrap();
         let mut doc = EngramDocument::new("x");
-        apply(&mut doc, json!({"op":"upsert_memory","key":"auth","category":"invariant","content":"Sessions are created in `internal/session.go`.","files":["internal/session.go"]}));
-        apply(&mut doc, json!({"op":"add_architecture_node","id":"auth","path":"internal/auth"}));
-        apply(&mut doc, json!({"op":"update_handoff","objective":"o","next_step":"n","progress":[{"description":"d","files":["gone.rs"]}]}));
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"auth","category":"invariant","content":"Sessions are created in `internal/session.go`.","files":["internal/session.go"]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"add_architecture_node","id":"auth","path":"internal/auth"}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"update_handoff","objective":"o","next_step":"n","progress":[{"description":"d","files":["gone.rs"]}]}),
+        );
         let r = audit(&doc, dir.path(), None);
         let broken: Vec<&Issue> = r.issues.iter().filter(|i| i.kind == IssueKind::BrokenPath).collect();
-        assert_eq!(broken.len(), 3, "explicit and inline refs to one path collapse into a single issue");
-        assert!(broken.iter().any(|i| i.suggestion.as_deref() == Some("File may have moved: pkg/auth/session.go")));
+        assert_eq!(
+            broken.len(),
+            3,
+            "explicit and inline refs to one path collapse into a single issue"
+        );
+        assert!(broken
+            .iter()
+            .any(|i| i.suggestion.as_deref() == Some("File may have moved: pkg/auth/session.go")));
         assert!(r.score < 100);
     }
 
@@ -719,42 +878,99 @@ mod tests {
     fn detects_zombies_deprecated_refs_and_cycles() {
         let dir = tempfile::tempdir().unwrap();
         let mut doc = EngramDocument::new("x");
-        apply(&mut doc, json!({"op":"add_architecture_node","id":"a","dependencies":["b","ghost"]}));
-        apply(&mut doc, json!({"op":"add_architecture_node","id":"b","dependencies":["a"]}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"old","category":"rule","content":"Old rule"}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"new","category":"rule","content":"New rule","supersedes_key":"old"}));
-        apply(&mut doc, json!({"op":"log_decision","context":"c","decision":"Pick A","related":["old","nothing"]}));
-        apply(&mut doc, json!({"op":"log_decision","context":"c","decision":"Pick B","supersedes":"ADR-0001"}));
-        apply(&mut doc, json!({"op":"log_decision","context":"Builds on ADR-0001","decision":"Pick C"}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"cite","category":"note","content":"Per ADR-0001 we pick A"}));
+        apply(
+            &mut doc,
+            json!({"op":"add_architecture_node","id":"a","dependencies":["b","ghost"]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"add_architecture_node","id":"b","dependencies":["a"]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"old","category":"rule","content":"Old rule"}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"new","category":"rule","content":"New rule","supersedes_key":"old"}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"log_decision","context":"c","decision":"Pick A","related":["old","nothing"]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"log_decision","context":"c","decision":"Pick B","supersedes":"ADR-0001"}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"log_decision","context":"Builds on ADR-0001","decision":"Pick C"}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"cite","category":"note","content":"Per ADR-0001 we pick A"}),
+        );
         let r = audit(&doc, dir.path(), None);
         let k = kinds(&r);
         assert!(k.contains(&IssueKind::ZombieReference));
         assert!(r.issues.iter().any(|i| i.message.contains("'ghost'")));
         assert!(r.issues.iter().any(|i| i.kind == IssueKind::DependencyCycle));
-        let deprecated_refs: Vec<_> = r.issues.iter().filter(|i| i.kind == IssueKind::DeprecatedReference).map(|i| i.subject.id.as_str()).collect();
+        let deprecated_refs: Vec<_> = r
+            .issues
+            .iter()
+            .filter(|i| i.kind == IssueKind::DeprecatedReference)
+            .map(|i| i.subject.id.as_str())
+            .collect();
         assert!(deprecated_refs.contains(&"ADR-0003"), "{deprecated_refs:?}");
         assert!(deprecated_refs.contains(&"cite"));
-        assert!(!deprecated_refs.contains(&"ADR-0002"), "the successor may reference its predecessor");
+        assert!(
+            !deprecated_refs.contains(&"ADR-0002"),
+            "the successor may reference its predecessor"
+        );
     }
 
     #[test]
     fn detects_contradictions_and_endorsed_rejections() {
         let dir = tempfile::tempdir().unwrap();
         let mut doc = EngramDocument::new("x");
-        apply(&mut doc, json!({"op":"upsert_memory","key":"tabs","category":"convention","content":"Always use tabs for indentation."}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"spaces","category":"convention","content":"Never use tabs for indentation."}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"db","category":"tech_stack","content":"Use Postgres for payments data."}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"db2","category":"tech_stack","content":"Never use MySQL for payments data."}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"state","category":"rule","content":"Prefer Redux for global state."}));
-        apply(&mut doc, json!({"op":"log_decision","context":"state","decision":"Use Zustand.","rejected_alternatives":[{"option":"Redux","reason":"boilerplate"}]}));
-        apply(&mut doc, json!({"op":"upsert_memory","key":"tagged","category":"rule","content":"x"}));
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"tabs","category":"convention","content":"Always use tabs for indentation."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"spaces","category":"convention","content":"Never use tabs for indentation."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"db","category":"tech_stack","content":"Use Postgres for payments data."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"db2","category":"tech_stack","content":"Never use MySQL for payments data."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"state","category":"rule","content":"Prefer Redux for global state."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"log_decision","context":"state","decision":"Use Zustand.","rejected_alternatives":[{"option":"Redux","reason":"boilerplate"}]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"tagged","category":"rule","content":"x"}),
+        );
         doc.memory_entry_mut("tagged").unwrap().content = "[SUPERSEDED] x".into();
         let r = audit(&doc, dir.path(), None);
         let contradictions: Vec<&Issue> = r.issues.iter().filter(|i| i.kind == IssueKind::Contradiction).collect();
         assert_eq!(contradictions.len(), 1, "{contradictions:#?}");
         assert_eq!(contradictions[0].subject.id, "tabs");
-        let endorsed: Vec<&Issue> = r.issues.iter().filter(|i| i.kind == IssueKind::RejectedAlternativeEndorsed).collect();
+        let endorsed: Vec<&Issue> = r
+            .issues
+            .iter()
+            .filter(|i| i.kind == IssueKind::RejectedAlternativeEndorsed)
+            .collect();
         assert_eq!(endorsed.len(), 1);
         assert_eq!(endorsed[0].subject.id, "state");
         assert!(kinds(&r).contains(&IssueKind::SupersededTagMismatch));

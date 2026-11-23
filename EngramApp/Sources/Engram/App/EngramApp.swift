@@ -3,7 +3,7 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension UTType {
-    static let engram = UTType(exportedAs: "app.engram.project", conformingTo: .json)
+    static let engram = UTType(exportedAs: "com.liwidale.engram.project", conformingTo: .json)
 }
 
 @main
@@ -21,7 +21,6 @@ struct EngramApp: App {
             if let url {
                 WorkspaceWindow(url: url)
             } else {
-                // Restored or opened without a file: fall back to the welcome flow.
                 WelcomeView()
             }
         }
@@ -41,7 +40,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSWindow.allowsAutomaticWindowTabbing = true
     }
 
-    /// Finder double-click, `open project.engram`, drag onto the Dock icon.
     func application(_ application: NSApplication, open urls: [URL]) {
         MainActor.assumeIsolated {
             for url in urls where url.pathExtension.lowercased() == "engram" {
@@ -53,7 +51,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }
 }
 
-/// Bridges AppKit entry points (file-open events, panels) to SwiftUI window actions.
 @MainActor
 final class OpenRouter {
     static let shared = OpenRouter()
@@ -107,8 +104,6 @@ final class OpenRouter {
         }
     }
 }
-
-// MARK: - Commands
 
 private struct WorkspaceKey: FocusedValueKey { typealias Value = WorkspaceModel }
 

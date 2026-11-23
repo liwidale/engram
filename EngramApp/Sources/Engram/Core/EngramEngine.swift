@@ -1,17 +1,12 @@
 import Foundation
 import CEngramCore
 
-/// An error reported by engram-core (or by decoding its response).
 struct EngramError: LocalizedError, Decodable, Equatable {
     var code: String
     var message: String
     var errorDescription: String? { message }
 }
 
-/// Swift wrapper around an `EngramHandle` from libengram_core.
-///
-/// All calls are thread-safe: the Rust side guards the cached snapshot with a mutex and
-/// every write is a locked, atomic read-modify-write of the `.engram` file.
 final class EngramEngine: @unchecked Sendable {
     let url: URL
     private let handle: OpaquePointer
@@ -46,8 +41,6 @@ final class EngramEngine: @unchecked Sendable {
         }
         throw EngramError(code: "internal", message: "engram-core failed to open \(url.lastPathComponent)")
     }
-
-    // MARK: Calls
 
     func document() throws -> DocumentEnvelope { try call { engram_document(handle) } }
 
@@ -105,8 +98,6 @@ final class EngramEngine: @unchecked Sendable {
         return String(cString: p)
     }
 
-    // MARK: Envelope decoding
-
     private struct Empty: Decodable {}
 
     private struct Envelope<T: Decodable>: Decodable {
@@ -130,7 +121,6 @@ final class EngramEngine: @unchecked Sendable {
     }
 }
 
-/// Request payload for `engram_build_context` (mirrors `engram_core::context::ContextRequest`).
 struct ContextRequest: Equatable {
     var task: String = ""
     var maxTokens: Int = 4000
@@ -160,7 +150,6 @@ struct ContextRequest: Equatable {
     }
 }
 
-/// Minimal dynamic JSON value for untyped operation results.
 enum JSONValue: Decodable, Hashable {
     case null, bool(Bool), number(Double), string(String), array([JSONValue]), object([String: JSONValue])
 

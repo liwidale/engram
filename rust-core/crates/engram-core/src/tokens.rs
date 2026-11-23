@@ -1,6 +1,3 @@
-//! Token counting with the `o200k_base` BPE (GPT-4o family). Counts are an approximation for
-//! other model families but are stable and deterministic, which is what budgeting needs.
-
 use tiktoken_rs::o200k_base_singleton;
 
 pub const TOKENIZER: &str = "o200k_base";

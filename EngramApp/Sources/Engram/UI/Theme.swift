@@ -1,7 +1,5 @@
 import SwiftUI
 
-/// Visual language: quiet neutral surfaces, one indigo accent, soft tinted chips.
-/// Everything is built from semantic colors so light and dark mode both work.
 enum Theme {
     static let accent = Color(red: 0.38, green: 0.40, blue: 0.95)
     static let radius: CGFloat = 8

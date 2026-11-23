@@ -128,7 +128,6 @@ struct HealthView: View {
         panel.directoryURL = model.resolvedRepoRoot
         panel.message = "Choose the codebase this project memory describes"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        // Store a path relative to the .engram file when possible so the file stays portable.
         let base = model.url.deletingLastPathComponent().standardizedFileURL.path
         let chosen = url.standardizedFileURL.path
         let value: String

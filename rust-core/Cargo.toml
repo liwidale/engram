@@ -6,6 +6,9 @@ members = ["crates/engram-core", "crates/engram-mcp"]
 version = "0.1.0"
 edition = "2021"
 license = "MIT"
+authors = ["Liwidale"]
+repository = "https://github.com/liwidale/engram"
+homepage = "https://github.com/liwidale/engram"
 rust-version = "1.89"
 
 [workspace.dependencies]

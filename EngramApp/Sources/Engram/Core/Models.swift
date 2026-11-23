@@ -1,11 +1,5 @@
 import Foundation
 
-// Swift mirrors of the engram-core JSON produced over the FFI bridge. They are decode-only:
-// every mutation goes back to Rust as an `EngramOp`, so Rust stays the single writer.
-
-// MARK: - Decoding helpers
-
-/// Markdown stored by engram-core as a string or as an array of lines.
 @propertyWrapper
 struct Lines: Decodable, Hashable {
     var wrappedValue: String
@@ -29,7 +23,6 @@ protocol DefaultProvider {
     static var value: Value { get }
 }
 
-/// Uses a default when the key is absent (engram-core omits empty optional fields).
 @propertyWrapper
 struct Default<P: DefaultProvider>: Decodable, Hashable {
     var wrappedValue: P.Value
@@ -61,8 +54,6 @@ extension JSONDecoder {
         return d
     }()
 }
-
-// MARK: - Document
 
 struct EngramDocument: Decodable, Hashable {
     var format: String
@@ -140,7 +131,6 @@ struct MemoryEntry: Decodable, Hashable, Identifiable {
 
     var isActive: Bool { status == .active }
 
-    /// First meaningful line, used for list subtitles.
     var summary: String {
         let body = content.replacingOccurrences(of: "[SUPERSEDED]", with: "", options: .caseInsensitive)
         return body.split(separator: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#-*> \t")) }
@@ -221,7 +211,6 @@ struct Prompt: Decodable, Hashable, Identifiable {
     var createdAt: String
     var updatedAt: String
 
-    /// `{{variable}}` names in order of first appearance (mirrors engram-core).
     var variables: [String] { Prompt.variables(in: body) }
 
     static func variables(in body: String) -> [String] {
@@ -276,8 +265,6 @@ struct DocumentEnvelope: Decodable {
     var document: EngramDocument
 }
 
-// MARK: - Context Builder
-
 struct ContextItem: Decodable, Hashable, Identifiable {
     enum Kind: String, Decodable { case memory, decision, node }
     enum Reason: String, Decodable { case pinned, selected, ranked, overBudget = "over_budget", belowThreshold = "below_threshold", excluded }
@@ -310,8 +297,6 @@ struct ContextBundle: Decodable, Hashable {
     var deadEnds: Int
     var prompt: PromptUsage?
 }
-
-// MARK: - Context Health
 
 struct EntityRef: Decodable, Hashable {
     var kind: String
@@ -357,8 +342,6 @@ struct HealthReport: Decodable, Hashable {
     var issues: [HealthIssue]
 }
 
-// MARK: - Architecture layout
-
 struct PlacedNode: Decodable, Hashable, Identifiable {
     var id: String
     var label: String
@@ -391,8 +374,6 @@ struct GraphLayout: Decodable, Hashable {
     static let empty = GraphLayout(nodes: [], edges: [], missing: [], cycles: [], width: 0, height: 0)
 }
 
-// MARK: - Misc
-
 struct RenderedPrompt: Decodable, Hashable {
     var text: String
     var missing: [String]
@@ -406,8 +387,6 @@ struct MCPConfig: Decodable, Hashable {
 }
 
 struct ReloadResult: Decodable { var changed: Bool; var revision: UInt64 }
-
-// MARK: - Dates
 
 enum EngramDate {
     private static let parser: ISO8601DateFormatter = {

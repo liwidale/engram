@@ -1,5 +1,3 @@
-//! Directed dependency graph over architecture nodes (`A -> B` means A depends on B).
-
 use crate::schema::{ArchNode, Architecture, NodeKind, Point};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -61,7 +59,6 @@ impl<'a> Graph<'a> {
         self.index.get(id).map(|&i| self.ids(&self.inc[i])).unwrap_or_default()
     }
 
-    /// Edges whose target does not exist (zombie references).
     pub fn missing_edges(&self) -> Vec<MissingEdge> {
         self.nodes
             .iter()
@@ -69,14 +66,18 @@ impl<'a> Graph<'a> {
                 n.depends_on
                     .iter()
                     .filter(|d| !self.index.contains_key(d.as_str()))
-                    .map(|d| MissingEdge { from: n.id.clone(), to: d.clone() })
+                    .map(|d| MissingEdge {
+                        from: n.id.clone(),
+                        to: d.clone(),
+                    })
             })
             .collect()
     }
 
-    /// Everything `id` depends on, directly or transitively, in BFS order.
     pub fn transitive_dependencies(&self, id: &str) -> Vec<String> {
-        let Some(&start) = self.index.get(id) else { return Vec::new() };
+        let Some(&start) = self.index.get(id) else {
+            return Vec::new();
+        };
         let mut seen = vec![false; self.len()];
         seen[start] = true;
         let mut queue = VecDeque::from([start]);
@@ -92,7 +93,6 @@ impl<'a> Graph<'a> {
         self.ids(&order)
     }
 
-    /// Undirected hop distance from any seed, up to `max_depth`.
     pub fn neighborhood(&self, seeds: &[&str], max_depth: usize) -> HashMap<String, usize> {
         let mut dist: HashMap<usize, usize> = HashMap::new();
         let mut queue = VecDeque::new();
@@ -118,7 +118,6 @@ impl<'a> Graph<'a> {
         dist.into_iter().map(|(i, d)| (self.nodes[i].id.clone(), d)).collect()
     }
 
-    /// Strongly connected components (Tarjan), in reverse topological order.
     fn sccs(&self) -> Vec<Vec<usize>> {
         struct St<'g> {
             g: &'g [Vec<usize>],
@@ -178,14 +177,17 @@ impl<'a> Graph<'a> {
         s.out
     }
 
-    /// Dependency cycles (each a set of node ids, sorted by declaration order).
     pub fn cycles(&self) -> Vec<Vec<String>> {
-        let mut cycles: Vec<Vec<String>> = self.sccs().into_iter().filter(|c| c.len() > 1).map(|c| self.ids(&c)).collect();
+        let mut cycles: Vec<Vec<String>> = self
+            .sccs()
+            .into_iter()
+            .filter(|c| c.len() > 1)
+            .map(|c| self.ids(&c))
+            .collect();
         cycles.sort();
         cycles
     }
 
-    /// Build order (dependencies before dependents), or `None` if the graph has a cycle.
     pub fn topological_order(&self) -> Option<Vec<String>> {
         let mut remaining: Vec<usize> = self.out.iter().map(Vec::len).collect();
         let mut queue: VecDeque<usize> = (0..self.len()).filter(|&i| remaining[i] == 0).collect();
@@ -202,8 +204,6 @@ impl<'a> Graph<'a> {
         (order.len() == self.len()).then(|| self.ids(&order))
     }
 
-    /// Layered (Sugiyama-style) layout: dependents above their dependencies, cycles collapsed
-    /// into a shared layer, crossings reduced with barycenter sweeps. Manual positions win.
     pub fn layout(&self, opts: LayoutOptions) -> Layout {
         let n = self.len();
         let comps = self.sccs();
@@ -213,8 +213,6 @@ impl<'a> Graph<'a> {
                 comp_of[v] = c;
             }
         }
-        // Tarjan emits components in reverse topological order (sinks first), so a single
-        // pass in reverse assigns each component its longest distance from any root.
         let mut comp_layer = vec![0usize; comps.len()];
         for c in (0..comps.len()).rev() {
             for &v in &comps[c] {
@@ -244,14 +242,22 @@ impl<'a> Graph<'a> {
         reindex(&layers, &mut pos);
         for sweep in 0..opts.sweeps {
             let down = sweep % 2 == 0;
-            let order: Vec<usize> = if down { (1..layer_count).collect() } else { (0..layer_count.saturating_sub(1)).rev().collect() };
+            let order: Vec<usize> = if down {
+                (1..layer_count).collect()
+            } else {
+                (0..layer_count.saturating_sub(1)).rev().collect()
+            };
             for l in order {
                 let neighbors = |v: usize| if down { &self.inc[v] } else { &self.out[v] };
                 let mut keyed: Vec<(f64, usize)> = layers[l]
                     .iter()
                     .map(|&v| {
                         let ns = neighbors(v);
-                        let key = if ns.is_empty() { pos[v] } else { ns.iter().map(|&u| pos[u]).sum::<f64>() / ns.len() as f64 };
+                        let key = if ns.is_empty() {
+                            pos[v]
+                        } else {
+                            ns.iter().map(|&u| pos[u]).sum::<f64>() / ns.len() as f64
+                        };
                         (key, v)
                     })
                     .collect();
@@ -286,12 +292,19 @@ impl<'a> Graph<'a> {
         let cyclic: HashSet<(usize, usize)> = comps
             .iter()
             .filter(|c| c.len() > 1)
-            .flat_map(|c| c.iter().flat_map(|&v| self.out[v].iter().filter(|w| c.contains(w)).map(move |&w| (v, w))))
+            .flat_map(|c| {
+                c.iter()
+                    .flat_map(|&v| self.out[v].iter().filter(|w| c.contains(w)).map(move |&w| (v, w)))
+            })
             .collect();
         let mut edges: Vec<LayoutEdge> = Vec::new();
         for (i, node) in self.nodes.iter().enumerate() {
             for &j in &self.out[i] {
-                edges.push(LayoutEdge { from: node.id.clone(), to: self.nodes[j].id.clone(), in_cycle: cyclic.contains(&(i, j)) });
+                edges.push(LayoutEdge {
+                    from: node.id.clone(),
+                    to: self.nodes[j].id.clone(),
+                    in_cycle: cyclic.contains(&(i, j)),
+                });
             }
         }
         let (mut w, mut h) = (0.0f64, 0.0f64);
@@ -299,7 +312,14 @@ impl<'a> Graph<'a> {
             w = w.max(p.position.x + opts.column_spacing / 2.0 + opts.margin);
             h = h.max(p.position.y + opts.row_spacing / 2.0 + opts.margin);
         }
-        Layout { nodes: placed, edges, missing: self.missing_edges(), cycles: self.cycles(), width: w, height: h }
+        Layout {
+            nodes: placed,
+            edges,
+            missing: self.missing_edges(),
+            cycles: self.cycles(),
+            width: w,
+            height: h,
+        }
     }
 }
 
@@ -313,7 +333,12 @@ pub struct LayoutOptions {
 
 impl Default for LayoutOptions {
     fn default() -> Self {
-        Self { column_spacing: 220.0, row_spacing: 140.0, margin: 120.0, sweeps: 8 }
+        Self {
+            column_spacing: 220.0,
+            row_spacing: 140.0,
+            margin: 120.0,
+            sweeps: 8,
+        }
     }
 }
 
@@ -369,12 +394,24 @@ mod tests {
 
     #[test]
     fn queries_and_topological_order() {
-        let a = arch(&[("ui", &["api"]), ("api", &["db", "auth"]), ("auth", &["db"]), ("db", &[]), ("ghost-user", &["nope"])]);
+        let a = arch(&[
+            ("ui", &["api"]),
+            ("api", &["db", "auth"]),
+            ("auth", &["db"]),
+            ("db", &[]),
+            ("ghost-user", &["nope"]),
+        ]);
         let g = Graph::new(&a);
         assert_eq!(g.dependencies("api"), vec!["db", "auth"]);
         assert_eq!(g.dependents("db"), vec!["api", "auth"]);
         assert_eq!(g.transitive_dependencies("ui"), vec!["api", "db", "auth"]);
-        assert_eq!(g.missing_edges(), vec![MissingEdge { from: "ghost-user".into(), to: "nope".into() }]);
+        assert_eq!(
+            g.missing_edges(),
+            vec![MissingEdge {
+                from: "ghost-user".into(),
+                to: "nope".into()
+            }]
+        );
         let order = g.topological_order().unwrap();
         let at = |id: &str| order.iter().position(|x| x == id).unwrap();
         assert!(at("db") < at("auth") && at("auth") < at("api") && at("api") < at("ui"));
@@ -408,6 +445,9 @@ mod tests {
         assert!(get("api").position.y < get("db").position.y);
         assert_eq!(get("cli").position, Point { x: 5.0, y: 6.0 });
         assert!(get("cli").manual);
-        assert_eq!(layout.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(), vec!["ui", "api", "db", "cli"]);
+        assert_eq!(
+            layout.nodes.iter().map(|n| n.id.as_str()).collect::<Vec<_>>(),
+            vec!["ui", "api", "db", "cli"]
+        );
     }
 }

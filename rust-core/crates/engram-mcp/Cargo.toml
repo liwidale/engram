@@ -1,9 +1,12 @@
 [package]
 name = "engram-mcp"
-description = "Model Context Protocol server (stdio) for .engram project memory files"
+description = "Model Context Protocol server that gives AI agents read and write access to .engram project memory."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
 
 [[bin]]

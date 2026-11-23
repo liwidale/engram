@@ -1,10 +1,3 @@
-//! Durable `.engram` persistence.
-//!
-//! Every mutation is a transaction: take an exclusive advisory lock on a sidecar lock file,
-//! re-read the document from disk, apply the change, validate, and atomically replace the
-//! file (write temp + fsync + rename). The Engram app and any number of `engram-mcp`
-//! processes can therefore write the same file without losing each other's updates.
-
 use crate::error::{EngramError, Result};
 use crate::schema::{EngramDocument, FORMAT_MAGIC};
 use crate::time::now_rfc3339;
@@ -17,7 +10,6 @@ pub struct Store {
     path: PathBuf,
 }
 
-/// A document together with the fingerprint of the bytes it was parsed from.
 #[derive(Clone, Debug)]
 pub struct Snapshot {
     pub document: EngramDocument,
@@ -33,7 +25,6 @@ impl Store {
         &self.path
     }
 
-    /// Directory containing the `.engram` file; relative repo roots resolve against it.
     pub fn base_dir(&self) -> PathBuf {
         self.path
             .parent()
@@ -42,7 +33,6 @@ impl Store {
             .unwrap_or_else(|| PathBuf::from("."))
     }
 
-    /// Creates a new `.engram` file. Fails if one already exists at the path.
     pub fn create(&self, project_name: &str) -> Result<EngramDocument> {
         let _lock = self.lock()?;
         if self.path.exists() {
@@ -63,30 +53,41 @@ impl Store {
         })
     }
 
-    /// Fingerprint of the bytes currently on disk, or `None` if the file is missing.
     pub fn disk_fingerprint(&self) -> Option<u64> {
         fs::read(&self.path).ok().map(|b| fingerprint(&b))
     }
 
-    /// Runs `f` against the latest on-disk document under an exclusive lock and persists the
-    /// result if it changed. Nothing is written when `f` fails or leaves the document as is.
     pub fn transact<T>(&self, f: impl FnOnce(&mut EngramDocument) -> Result<T>) -> Result<(T, Snapshot)> {
         let _lock = self.lock()?;
-        let Snapshot { document: original, fingerprint: fp } = self.load()?;
+        let Snapshot {
+            document: original,
+            fingerprint: fp,
+        } = self.load()?;
         let mut doc = original.clone();
         let out = f(&mut doc)?;
         if doc == original {
-            return Ok((out, Snapshot { document: doc, fingerprint: fp }));
+            return Ok((
+                out,
+                Snapshot {
+                    document: doc,
+                    fingerprint: fp,
+                },
+            ));
         }
         doc.validate()?;
         doc.revision = original.revision + 1;
         doc.project.updated_at = now_rfc3339();
         let bytes = serialize(&doc)?;
         self.write_atomic(&bytes)?;
-        Ok((out, Snapshot { document: doc, fingerprint: fingerprint(&bytes) }))
+        Ok((
+            out,
+            Snapshot {
+                document: doc,
+                fingerprint: fingerprint(&bytes),
+            },
+        ))
     }
 
-    /// Replaces the whole document, refusing if the file moved past `expected_revision`.
     pub fn replace(&self, mut doc: EngramDocument, expected_revision: Option<u64>) -> Result<Snapshot> {
         self.transact(move |current| {
             if let Some(expected) = expected_revision {
@@ -168,16 +169,16 @@ pub fn parse(path: &Path, bytes: &[u8]) -> Result<EngramDocument> {
     Ok(doc)
 }
 
-/// Canonical on-disk form: two-space indented JSON with a trailing newline.
 pub fn serialize(doc: &EngramDocument) -> Result<Vec<u8>> {
     let mut bytes = serde_json::to_vec_pretty(doc)?;
     bytes.push(b'\n');
     Ok(bytes)
 }
 
-/// FNV-1a 64; stable across runs and platforms (unlike `DefaultHasher`).
 pub fn fingerprint(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3))
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ *b as u64).wrapping_mul(0x0100_0000_01b3)
+    })
 }
 
 #[cfg(test)]
@@ -209,7 +210,10 @@ mod tests {
         assert_eq!(doc.revision, 1);
         assert!(store.create("Demo").is_err(), "create must not clobber");
 
-        let (_, snap) = store.transact(|d| Ok(d.memory.push(entry("a")))).unwrap();
+        let (_, snap) = store.transact(|d| {
+            let _: () = d.memory.push(entry("a"));
+            Ok(())
+        }).unwrap();
         assert_eq!(snap.document.revision, 2);
         let loaded = store.load().unwrap();
         assert_eq!(loaded.document, snap.document);
@@ -217,7 +221,10 @@ mod tests {
 
         let raw = fs::read_to_string(store.path()).unwrap();
         assert!(raw.ends_with("}\n"));
-        assert!(raw.contains("\"line one\",\n"), "multi-line text is stored as lines:\n{raw}");
+        assert!(
+            raw.contains("\"line one\",\n"),
+            "multi-line text is stored as lines:\n{raw}"
+        );
     }
 
     #[test]
@@ -234,8 +241,12 @@ mod tests {
         });
         assert!(err.is_err());
         assert_eq!(store.disk_fingerprint(), before);
-        // Validation failures abort the write too.
-        assert!(store.transact(|d| Ok(d.memory.extend([entry("a"), entry("a")]))).is_err());
+        assert!(store
+            .transact(|d| {
+                let _: () = d.memory.extend([entry("a"), entry("a")]);
+                Ok(())
+            })
+            .is_err());
         assert_eq!(store.load().unwrap().document.memory.len(), 0);
     }
 
@@ -244,7 +255,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let store = Store::new(dir.path().join("p.engram"));
         let doc = store.create("Demo").unwrap();
-        store.transact(|d| Ok(d.memory.push(entry("from-agent")))).unwrap();
+        store.transact(|d| {
+            let _: () = d.memory.push(entry("from-agent"));
+            Ok(())
+        }).unwrap();
         let err = store.replace(doc.clone(), Some(doc.revision)).unwrap_err();
         assert_eq!(err.code(), "conflict");
         let snap = store.replace(doc, None).unwrap();
@@ -263,7 +277,12 @@ mod tests {
                 std::thread::spawn(move || {
                     let store = Store::new(path);
                     for i in 0..10 {
-                        store.transact(|d| Ok(d.memory.push(entry(&format!("t{t}-{i}"))))).unwrap();
+                        store
+                            .transact(|d| {
+                                let _: () = d.memory.push(entry(&format!("t{t}-{i}")));
+                                Ok(())
+                            })
+                            .unwrap();
                     }
                 })
             })
@@ -278,7 +297,11 @@ mod tests {
     fn rejects_foreign_json() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("x.engram");
-        fs::write(&path, br#"{"format":"other","version":1,"project":{"name":"x","created_at":"","updated_at":""}}"#).unwrap();
+        fs::write(
+            &path,
+            br#"{"format":"other","version":1,"project":{"name":"x","created_at":"","updated_at":""}}"#,
+        )
+        .unwrap();
         assert_eq!(Store::new(&path).load().unwrap_err().code(), "parse");
     }
 }

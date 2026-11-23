@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// One window (or native tab) per `.engram` file.
 struct WorkspaceWindow: View {
     let url: URL
     @State private var model: WorkspaceModel?
@@ -31,7 +30,7 @@ struct WorkspaceWindow: View {
         }
         .onDisappear { model?.close() }
         .hostingWindow { window in
-            window.tabbingIdentifier = "app.engram.workspace"
+            window.tabbingIdentifier = "com.liwidale.engram.workspace"
             window.tabbingMode = .preferred
             window.representedURL = url
         }
@@ -164,8 +163,6 @@ private struct BannerView: View {
         }
     }
 }
-
-// MARK: - Sidebar
 
 private struct Sidebar: View {
     @Bindable var model: WorkspaceModel

@@ -1,5 +1,3 @@
-//! Minimal UTC RFC 3339 timestamps (`YYYY-MM-DDTHH:MM:SSZ`) without pulling in a date crate.
-
 use std::time::{SystemTime, UNIX_EPOCH};
 
 pub fn now_unix() -> i64 {
@@ -24,7 +22,6 @@ pub fn format_rfc3339(secs: i64) -> String {
     )
 }
 
-/// Parses timestamps produced by [`format_rfc3339`] (and offset-free `Z` variants with fractions).
 pub fn parse_rfc3339(s: &str) -> Option<i64> {
     let b = s.as_bytes();
     if b.len() < 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[13] != b':' || b[16] != b':' {
@@ -39,7 +36,6 @@ pub fn parse_rfc3339(s: &str) -> Option<i64> {
     Some(days_from_civil(y, mo as u32, d as u32) * 86_400 + h * 3600 + mi * 60 + se)
 }
 
-// Howard Hinnant's civil calendar algorithms.
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = z.div_euclid(146_097);

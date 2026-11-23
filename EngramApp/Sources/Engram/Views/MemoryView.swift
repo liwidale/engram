@@ -139,8 +139,6 @@ private struct MemoryRow: View {
     }
 }
 
-// MARK: - Editor
-
 private struct MemoryEditor: View {
     enum Mode: String, CaseIterable { case edit = "Edit", split = "Split", preview = "Preview" }
 
@@ -180,7 +178,6 @@ private struct MemoryEditor: View {
             model.unregisterCommit("memory")
         }
         .onChange(of: entry) { _, new in
-            // External edits (agents, git) flow in unless the user has unsaved changes.
             if !dirty { load(new) }
         }
         .onChange(of: content) { _, _ in scheduleSave() }
@@ -337,8 +334,6 @@ private struct MemoryEditor: View {
         }
     }
 }
-
-// MARK: - Composer
 
 struct MemoryComposer: View {
     enum Seed: Identifiable {

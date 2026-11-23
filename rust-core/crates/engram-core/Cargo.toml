@@ -1,9 +1,12 @@
 [package]
 name = "engram-core"
-description = "Engram project memory engine: .engram schema, graph model, context builder, health auditor and C ABI"
+description = "Project memory engine for Engram: the .engram format, dependency graph, context builder, health auditor and C ABI."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 rust-version.workspace = true
 
 [lib]

@@ -1,5 +1,3 @@
-//! MCP tool definitions (JSON Schema input contracts).
-
 use serde_json::{json, Value};
 
 fn tool(name: &str, title: &str, description: &str, schema: Value, read_only: bool, idempotent: bool) -> Value {

@@ -1,8 +1,3 @@
-//! The `.engram` document model.
-//!
-//! An `.engram` file is pretty-printed JSON with a fixed top-level key order and stable
-//! array ordering, so it can live in Git next to the code it describes.
-
 use crate::error::{invalid, Result};
 use crate::text::Text;
 use crate::time::now_rfc3339;
@@ -17,7 +12,6 @@ pub const SUPERSEDED_TAG: &str = "[SUPERSEDED]";
 pub struct EngramDocument {
     pub format: String,
     pub version: u32,
-    /// Monotonic write counter, bumped by every persisted mutation.
     #[serde(default)]
     pub revision: u64,
     pub project: Project,
@@ -38,15 +32,11 @@ pub struct Project {
     pub name: String,
     #[serde(default)]
     pub description: Text,
-    /// Codebase root, absolute or relative to the directory containing the `.engram` file.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_root: Option<String>,
     pub created_at: String,
     pub updated_at: String,
 }
-
-// ---------------------------------------------------------------------------------------------
-// Project Memory
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,7 +67,6 @@ impl MemoryCategory {
         }
     }
 
-    /// Accepts the canonical names plus common spellings agents tend to send.
     pub fn parse(s: &str) -> Result<Self> {
         let norm: String = s
             .trim()
@@ -93,12 +82,14 @@ impl MemoryCategory {
             "note" | "context" | "fact" => Self::Note,
             _ => {
                 let valid: Vec<_> = Self::ALL.iter().map(|c| c.as_str()).collect();
-                return invalid(format!("unknown memory category '{s}' (expected one of {})", valid.join(", ")));
+                return invalid(format!(
+                    "unknown memory category '{s}' (expected one of {})",
+                    valid.join(", ")
+                ));
             }
         })
     }
 
-    /// Base relevance weight used by the context ranker.
     pub fn weight(self) -> f64 {
         match self {
             Self::Invariant => 1.5,
@@ -124,13 +115,11 @@ pub struct MemoryEntry {
     pub category: MemoryCategory,
     #[serde(default)]
     pub status: EntryStatus,
-    /// Always included by the Context Builder, regardless of rank.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pinned: bool,
     pub content: Text,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
-    /// Codebase paths this entry talks about (checked by Context Health).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub files: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -146,7 +135,6 @@ impl MemoryEntry {
         self.status == EntryStatus::Active
     }
 
-    /// Content with a leading `[SUPERSEDED]` marker removed.
     pub fn body(&self) -> &str {
         strip_superseded_tag(&self.content)
     }
@@ -163,9 +151,6 @@ pub fn strip_superseded_tag(s: &str) -> &str {
 pub fn has_superseded_tag(s: &str) -> bool {
     strip_superseded_tag(s).len() != s.len()
 }
-
-// ---------------------------------------------------------------------------------------------
-// Architecture Map
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -213,7 +198,10 @@ impl NodeKind {
             "external" | "third_party" | "third-party" | "saas" => Self::External,
             _ => {
                 let valid: Vec<_> = Self::ALL.iter().map(|k| k.as_str()).collect();
-                return invalid(format!("unknown node type '{s}' (expected one of {})", valid.join(", ")));
+                return invalid(format!(
+                    "unknown node type '{s}' (expected one of {})",
+                    valid.join(", ")
+                ));
             }
         })
     }
@@ -234,13 +222,10 @@ pub struct ArchNode {
     pub label: Option<String>,
     #[serde(default)]
     pub description: Text,
-    /// Codebase directory or file implementing this node.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub path: Option<String>,
-    /// Outgoing edges: `self -> dependency`.
     #[serde(default)]
     pub depends_on: Vec<String>,
-    /// Manual canvas position; `None` means auto-layout.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub position: Option<Point>,
 }
@@ -256,9 +241,6 @@ pub struct Architecture {
     #[serde(default)]
     pub nodes: Vec<ArchNode>,
 }
-
-// ---------------------------------------------------------------------------------------------
-// Decision Log
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -295,7 +277,6 @@ pub struct Decision {
     pub rejected_alternatives: Vec<RejectedAlternative>,
     #[serde(default, skip_serializing_if = "Text::is_empty")]
     pub consequences: Text,
-    /// Memory keys, node ids or ADR ids this decision relates to.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub related: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -311,9 +292,6 @@ impl Decision {
         self.status == DecisionStatus::Active
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Prompt Vault
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Prompt {
@@ -334,7 +312,6 @@ pub struct RenderedPrompt {
 }
 
 impl Prompt {
-    /// Unique `{{variable}}` names in order of first appearance.
     pub fn variables(&self) -> Vec<String> {
         let mut seen = HashSet::new();
         placeholders(&self.body)
@@ -342,7 +319,6 @@ impl Prompt {
             .collect()
     }
 
-    /// Substitutes `{{variable}}` placeholders; unknown ones are left intact and reported.
     pub fn render(&self, vars: &serde_json::Map<String, serde_json::Value>) -> RenderedPrompt {
         let body: &str = &self.body;
         let mut out = String::with_capacity(body.len());
@@ -367,7 +343,6 @@ impl Prompt {
     }
 }
 
-/// Yields `(byte_range, trimmed_name)` for each `{{ name }}` placeholder.
 fn placeholders(s: &str) -> impl Iterator<Item = (std::ops::Range<usize>, &str)> {
     let mut pos = 0;
     std::iter::from_fn(move || loop {
@@ -375,14 +350,15 @@ fn placeholders(s: &str) -> impl Iterator<Item = (std::ops::Range<usize>, &str)>
         let close = start + 2 + s[start + 2..].find("}}")?;
         pos = close + 2;
         let name = s[start + 2..close].trim();
-        if !name.is_empty() && name.chars().all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.')) {
+        if !name.is_empty()
+            && name
+                .chars()
+                .all(|c| c.is_alphanumeric() || matches!(c, '_' | '-' | '.'))
+        {
             return Some((start..close + 2, name));
         }
     })
 }
-
-// ---------------------------------------------------------------------------------------------
-// Agent Handoff
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ProgressItem {
@@ -429,9 +405,6 @@ impl Handoff {
             && self.working_memory.notes.is_empty()
     }
 }
-
-// ---------------------------------------------------------------------------------------------
-// Document-level helpers
 
 impl EngramDocument {
     pub fn new(project_name: impl Into<String>) -> Self {
@@ -480,7 +453,6 @@ impl EngramDocument {
             .or_else(|| self.prompts.iter().find(|p| p.name.eq_ignore_ascii_case(name)))
     }
 
-    /// Next sequential ADR identifier (`ADR-0001`, `ADR-0002`, ...).
     pub fn next_decision_id(&self) -> String {
         let max = self
             .decisions
@@ -491,7 +463,6 @@ impl EngramDocument {
         format!("ADR-{:04}", max + 1)
     }
 
-    /// Structural validation enforced before every write.
     pub fn validate(&self) -> Result<()> {
         if self.format != FORMAT_MAGIC {
             return invalid(format!("format must be \"{FORMAT_MAGIC}\", found \"{}\"", self.format));
@@ -506,7 +477,10 @@ impl EngramDocument {
             return invalid("project.name must not be empty");
         }
         unique("memory key", self.memory.iter().map(|m| m.key.as_str()))?;
-        unique("architecture node id", self.architecture.nodes.iter().map(|n| n.id.as_str()))?;
+        unique(
+            "architecture node id",
+            self.architecture.nodes.iter().map(|n| n.id.as_str()),
+        )?;
         unique("decision id", self.decisions.iter().map(|d| d.id.as_str()))?;
         unique("prompt name", self.prompts.iter().map(|p| p.name.as_str()))?;
         for n in &self.architecture.nodes {
@@ -567,7 +541,10 @@ mod tests {
         assert_eq!(p.variables(), vec!["bug", "file"]);
         let vars = json!({"bug": "the crash", "file": 3}).as_object().unwrap().clone();
         let r = p.render(&vars);
-        assert_eq!(r.text, "Fix the crash in 3. Again: the crash. Not a var: {{two words}} {{}}");
+        assert_eq!(
+            r.text,
+            "Fix the crash in 3. Again: the crash. Not a var: {{two words}} {{}}"
+        );
         assert!(r.missing.is_empty());
         let r = p.render(&serde_json::Map::new());
         assert_eq!(r.missing, vec!["bug", "file"]);
@@ -597,7 +574,11 @@ mod tests {
         doc.validate().unwrap();
         doc.prompts.push(prompt("a"));
         doc.prompts.push(prompt("b"));
-        assert!(doc.validate().unwrap_err().to_string().contains("duplicate prompt name"));
+        assert!(doc
+            .validate()
+            .unwrap_err()
+            .to_string()
+            .contains("duplicate prompt name"));
         doc.prompts.pop();
         doc.architecture.nodes.push(ArchNode {
             id: "a".into(),

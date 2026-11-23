@@ -1,6 +1,3 @@
-//! `engram-mcp`: Model Context Protocol server (newline-delimited JSON-RPC 2.0 over stdio)
-//! exposing an `.engram` project memory file to AI agents, plus a few CLI utilities.
-
 mod server;
 mod tools;
 
@@ -39,7 +36,16 @@ struct Args {
 
 fn parse_args() -> Result<Args, String> {
     let mut it = std::env::args().skip(1);
-    let mut a = Args { command: "serve".into(), positional: vec![], file: None, name: None, repo: None, task: None, max_tokens: None, json: false };
+    let mut a = Args {
+        command: "serve".into(),
+        positional: vec![],
+        file: None,
+        name: None,
+        repo: None,
+        task: None,
+        max_tokens: None,
+        json: false,
+    };
     let mut first = true;
     while let Some(arg) = it.next() {
         let mut value = |flag: &str| it.next().ok_or_else(|| format!("{flag} needs a value"));
@@ -59,7 +65,11 @@ fn parse_args() -> Result<Args, String> {
         first = false;
     }
     if a.file.is_none() {
-        a.file = a.positional.first().map(PathBuf::from).or_else(|| std::env::var_os("ENGRAM_FILE").map(PathBuf::from));
+        a.file = a
+            .positional
+            .first()
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("ENGRAM_FILE").map(PathBuf::from));
     }
     Ok(a)
 }
@@ -107,7 +117,11 @@ type CliResult = Result<ExitCode, Box<dyn std::error::Error>>;
 
 fn init(store: &Store, args: &Args) -> CliResult {
     let name = args.name.clone().unwrap_or_else(|| {
-        store.path().file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "Project".into())
+        store
+            .path()
+            .file_stem()
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "Project".into())
     });
     store.create(&name)?;
     println!("Created {} ({name})", store.path().display());
@@ -134,12 +148,14 @@ fn run_context(store: &Store, args: &Args) -> CliResult {
     let req = ContextRequest::for_task(args.task.clone().unwrap_or_default(), args.max_tokens.unwrap_or(4000));
     let bundle = build_context(&doc, &req);
     print!("{}", bundle.xml);
-    eprintln!("{} tokens ({}), budget {}", bundle.tokens, bundle.tokenizer, bundle.max_tokens);
+    eprintln!(
+        "{} tokens ({}), budget {}",
+        bundle.tokens, bundle.tokenizer, bundle.max_tokens
+    );
     Ok(ExitCode::SUCCESS)
 }
 
 fn serve(store: Store) -> CliResult {
-    // Fail fast with a readable message instead of erroring on every request.
     let snap = store.load()?;
     eprintln!(
         "[engram-mcp] serving {} (project '{}', revision {})",

@@ -1,15 +1,8 @@
-//! Context Builder: ranks project memory, ADRs and architecture nodes against a task and packs
-//! the highest-signal items into a token budget, emitted as an XML context bundle.
-//!
-//! Ranking = BM25 over item text, plus graph propagation (a matched node lifts its neighbours
-//! and every entry that mentions it), scaled by per-kind weights. Pinned and explicitly
-//! selected items are always included. Superseded memory and deprecated ADRs never are.
-
 use crate::analysis::{stem, terms};
 use crate::graph::Graph;
 use crate::schema::*;
-use crate::tokens::{count_tokens, TOKENIZER};
 use crate::time::now_rfc3339;
+use crate::tokens::{count_tokens, TOKENIZER};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
@@ -33,10 +26,8 @@ pub struct ContextRequest {
     pub task: String,
     #[serde(default = "default_max_tokens")]
     pub max_tokens: usize,
-    /// Always included (subject to never including superseded/deprecated items).
     #[serde(default)]
     pub include: Selection,
-    /// Never included.
     #[serde(default)]
     pub exclude: Selection,
     #[serde(default)]
@@ -45,7 +36,6 @@ pub struct ContextRequest {
     pub prompt_vars: serde_json::Map<String, serde_json::Value>,
     #[serde(default = "yes")]
     pub include_handoff: bool,
-    /// When false only pinned and explicitly included items are used.
     #[serde(default = "yes")]
     pub auto_rank: bool,
     #[serde(default)]
@@ -103,7 +93,6 @@ pub struct RankedItem {
     pub tokens: usize,
     pub included: bool,
     pub reason: Reason,
-    /// Query terms that matched this item.
     pub matched: Vec<String>,
 }
 
@@ -166,8 +155,20 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         });
     }
     for d in doc.decisions.iter().filter(|d| d.is_active()) {
-        let alts: Vec<String> = d.rejected_alternatives.iter().map(|a| format!("{} {}", a.option, a.reason)).collect();
-        let text = format!("{} {} {} {} {} {}", d.id, d.title, d.context, d.decision, alts.join(" "), d.related.join(" "));
+        let alts: Vec<String> = d
+            .rejected_alternatives
+            .iter()
+            .map(|a| format!("{} {}", a.option, a.reason))
+            .collect();
+        let text = format!(
+            "{} {} {} {} {} {}",
+            d.id,
+            d.title,
+            d.context,
+            d.decision,
+            alts.join(" "),
+            d.related.join(" ")
+        );
         let t = terms(&text);
         let mut ms = mentions(&t, &node_ids);
         ms.extend(d.related.iter().map(String::as_str).filter(|r| node_ids.contains(r)));
@@ -184,9 +185,13 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         });
     }
     for n in &doc.architecture.nodes {
-        // The node type is deliberately not indexed: "service" in a task would otherwise match
-        // every service node and drag unrelated neighbours in through propagation.
-        let text = format!("{} {} {} {}", n.id, n.display_name(), n.description, n.path.as_deref().unwrap_or(""));
+        let text = format!(
+            "{} {} {} {}",
+            n.id,
+            n.display_name(),
+            n.description,
+            n.path.as_deref().unwrap_or("")
+        );
         cands.push(Candidate {
             kind: ItemKind::Node,
             id: &n.id,
@@ -200,7 +205,6 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         });
     }
 
-    // --- Lexical relevance (BM25) ---------------------------------------------------------
     let query: Vec<String> = {
         let mut seen = HashSet::new();
         let mut text = req.task.clone();
@@ -216,7 +220,12 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
     let avg_len = cands.iter().map(|c| c.terms.len()).sum::<usize>() as f64 / n_docs;
     let df: HashMap<&str, usize> = query
         .iter()
-        .map(|q| (q.as_str(), cands.iter().filter(|c| c.terms.iter().any(|t| t == q)).count()))
+        .map(|q| {
+            (
+                q.as_str(),
+                cands.iter().filter(|c| c.terms.iter().any(|t| t == q)).count(),
+            )
+        })
         .collect();
     let (k1, b) = (1.2, 0.75);
     let mut lexical: Vec<f64> = Vec::with_capacity(cands.len());
@@ -239,10 +248,11 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         matched.push(hits);
     }
     let max_lex = lexical.iter().copied().fold(0.0, f64::max);
-    let norm: Vec<f64> = lexical.iter().map(|s| if max_lex > 0.0 { s / max_lex } else { 0.0 }).collect();
+    let norm: Vec<f64> = lexical
+        .iter()
+        .map(|s| if max_lex > 0.0 { s / max_lex } else { 0.0 })
+        .collect();
 
-    // --- Graph propagation ----------------------------------------------------------------
-    // Only nodes with a meaningful direct match propagate relevance.
     let node_score: HashMap<&str, f64> = cands
         .iter()
         .zip(&norm)
@@ -259,31 +269,67 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
                 }
                 0.5 * best
             }
-            _ => 0.4 * c.mentions.iter().filter_map(|m| node_score.get(m)).copied().fold(0.0, f64::max),
+            _ => {
+                0.4 * c
+                    .mentions
+                    .iter()
+                    .filter_map(|m| node_score.get(m))
+                    .copied()
+                    .fold(0.0, f64::max)
+            }
         };
         let base = if query.is_empty() { 0.25 } else { norm[i] + propagated };
         scores.push(base * c.weight);
     }
 
-    // --- Budget packing -------------------------------------------------------------------
     let handoff_xml = (req.include_handoff && !doc.handoff.is_empty()).then(|| handoff_xml(&doc.handoff));
-    let prompt = req.prompt.as_deref().filter(|p| !p.trim().is_empty()).map(|name| match doc.prompt(name) {
-        Some(p) => {
-            let r = p.render(&req.prompt_vars);
-            (PromptUsage { name: p.name.clone(), missing: r.missing, found: true }, Some(prompt_xml(&p.name, &r.text)))
-        }
-        None => (PromptUsage { name: name.to_owned(), missing: vec![], found: false }, None),
-    });
+    let prompt = req
+        .prompt
+        .as_deref()
+        .filter(|p| !p.trim().is_empty())
+        .map(|name| match doc.prompt(name) {
+            Some(p) => {
+                let r = p.render(&req.prompt_vars);
+                (
+                    PromptUsage {
+                        name: p.name.clone(),
+                        missing: r.missing,
+                        found: true,
+                    },
+                    Some(prompt_xml(&p.name, &r.text)),
+                )
+            }
+            None => (
+                PromptUsage {
+                    name: name.to_owned(),
+                    missing: vec![],
+                    found: false,
+                },
+                None,
+            ),
+        });
     let prompt_fragment = prompt.as_ref().and_then(|(_, x)| x.clone());
-    let skeleton = assemble(doc, req, handoff_xml.as_deref(), &[], &[], &[], &[], prompt_fragment.as_deref());
-    let mut used = count_tokens(&skeleton) + 12; // section wrappers
+    let skeleton = assemble(
+        doc,
+        req,
+        handoff_xml.as_deref(),
+        &[],
+        &[],
+        &[],
+        &[],
+        prompt_fragment.as_deref(),
+    );
+    let mut used = count_tokens(&skeleton) + 12;
     let threshold = req.min_score.unwrap_or(DEFAULT_MIN_SCORE);
 
     let token_cost: Vec<usize> = cands.iter().map(|c| count_tokens(&c.fragment) + 1).collect();
     let mut order: Vec<usize> = (0..cands.len()).collect();
     order.sort_by(|&a, &b| {
         let forced = |i: usize| cands[i].forced.is_some() && !cands[i].excluded;
-        forced(b).cmp(&forced(a)).then(scores[b].total_cmp(&scores[a])).then(a.cmp(&b))
+        forced(b)
+            .cmp(&forced(a))
+            .then(scores[b].total_cmp(&scores[a]))
+            .then(a.cmp(&b))
     });
     let mut reason: Vec<Reason> = vec![Reason::BelowThreshold; cands.len()];
     let mut included = vec![false; cands.len()];
@@ -307,7 +353,9 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
     }
 
     let pick = |kind: ItemKind| -> Vec<&str> {
-        let mut ix: Vec<usize> = (0..cands.len()).filter(|&i| included[i] && cands[i].kind == kind).collect();
+        let mut ix: Vec<usize> = (0..cands.len())
+            .filter(|&i| included[i] && cands[i].kind == kind)
+            .collect();
         if kind == ItemKind::Memory {
             ix.sort_by_key(|&i| (category_rank(doc.memory_entry(cands[i].id).map(|m| m.category)), i));
         }
@@ -315,12 +363,17 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
     };
     let (mem, dec, nodes) = (pick(ItemKind::Memory), pick(ItemKind::Decision), pick(ItemKind::Node));
 
-    // Dead ends: rejected alternatives of active ADRs that did not make it in full.
-    let included_adrs: HashSet<&str> =
-        (0..cands.len()).filter(|&i| included[i] && cands[i].kind == ItemKind::Decision).map(|i| cands[i].id).collect();
+    let included_adrs: HashSet<&str> = (0..cands.len())
+        .filter(|&i| included[i] && cands[i].kind == ItemKind::Decision)
+        .map(|i| cands[i].id)
+        .collect();
     let mut dead_ends: Vec<String> = Vec::new();
     if req.auto_rank {
-        for d in doc.decisions.iter().filter(|d| d.is_active() && !included_adrs.contains(d.id.as_str())) {
+        for d in doc
+            .decisions
+            .iter()
+            .filter(|d| d.is_active() && !included_adrs.contains(d.id.as_str()))
+        {
             if has(&req.exclude.decisions, &d.id) {
                 continue;
             }
@@ -340,7 +393,16 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         }
     }
 
-    let xml = assemble(doc, req, handoff_xml.as_deref(), &mem, &nodes, &dec, &dead_ends, prompt_fragment.as_deref());
+    let xml = assemble(
+        doc,
+        req,
+        handoff_xml.as_deref(),
+        &mem,
+        &nodes,
+        &dec,
+        &dead_ends,
+        prompt_fragment.as_deref(),
+    );
     let tokens = count_tokens(&xml);
     let mut items: Vec<RankedItem> = order
         .iter()
@@ -371,7 +433,10 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
 fn mentions<'a>(terms: &[String], node_ids: &HashSet<&'a str>) -> Vec<&'a str> {
     let mut out: Vec<&'a str> = Vec::new();
     for t in terms {
-        if let Some(id) = node_ids.iter().find(|id| id.eq_ignore_ascii_case(t) || stem(&id.to_lowercase()) == *t) {
+        if let Some(id) = node_ids
+            .iter()
+            .find(|id| id.eq_ignore_ascii_case(t) || stem(&id.to_lowercase()) == *t)
+        {
             if !out.contains(id) {
                 out.push(id);
             }
@@ -391,7 +456,11 @@ fn category_rank(c: Option<MemoryCategory>) -> usize {
 }
 
 fn first_line(s: &str, fallback: &str) -> String {
-    let line = s.lines().map(|l| l.trim().trim_start_matches(['#', '-', '*', ' '])).find(|l| !l.is_empty()).unwrap_or(fallback);
+    let line = s
+        .lines()
+        .map(|l| l.trim().trim_start_matches(['#', '-', '*', ' ']))
+        .find(|l| !l.is_empty())
+        .unwrap_or(fallback);
     let mut out: String = line.chars().take(90).collect();
     if line.chars().count() > 90 {
         out.push('…');
@@ -447,7 +516,11 @@ fn assemble(
 }
 
 fn memory_xml(m: &MemoryEntry) -> String {
-    let mut x = format!("    <entry key=\"{}\" category=\"{}\"", attr(&m.key), m.category.as_str());
+    let mut x = format!(
+        "    <entry key=\"{}\" category=\"{}\"",
+        attr(&m.key),
+        m.category.as_str()
+    );
     if m.pinned {
         x.push_str(" pinned=\"true\"");
     }
@@ -459,11 +532,21 @@ fn memory_xml(m: &MemoryEntry) -> String {
 }
 
 fn decision_xml(d: &Decision) -> String {
-    let mut x = format!("    <adr id=\"{}\" status=\"{}\" title=\"{}\">\n", attr(&d.id), d.status.as_str(), attr(&d.title));
+    let mut x = format!(
+        "    <adr id=\"{}\" status=\"{}\" title=\"{}\">\n",
+        attr(&d.id),
+        d.status.as_str(),
+        attr(&d.title)
+    );
     let _ = writeln!(x, "      <context>{}</context>", esc(d.context.trim()));
     let _ = writeln!(x, "      <decision>{}</decision>", esc(d.decision.trim()));
     for a in &d.rejected_alternatives {
-        let _ = writeln!(x, "      <rejected option=\"{}\">{}</rejected>", attr(&a.option), esc(&a.reason));
+        let _ = writeln!(
+            x,
+            "      <rejected option=\"{}\">{}</rejected>",
+            attr(&a.option),
+            esc(&a.reason)
+        );
     }
     if !d.consequences.trim().is_empty() {
         let _ = writeln!(x, "      <consequences>{}</consequences>", esc(d.consequences.trim()));
@@ -539,7 +622,6 @@ fn prompt_xml(name: &str, text: &str) -> String {
     format!("  <prompt name=\"{}\">{}</prompt>\n", attr(name), esc(text.trim()))
 }
 
-/// Standalone handoff checkpoint (also used by the `engram://handoff` resource).
 pub fn handoff_document_xml(doc: &EngramDocument) -> String {
     format!(
         "<engram_handoff project=\"{}\" revision=\"{}\">\n{}</engram_handoff>\n",
@@ -602,7 +684,10 @@ mod tests {
     #[test]
     fn ranks_relevant_items_and_excludes_superseded() {
         let doc = fixture();
-        let b = build_context(&doc, &ContextRequest::for_task("Add refunds to the payments service without double charging", 4000));
+        let b = build_context(
+            &doc,
+            &ContextRequest::for_task("Add refunds to the payments service without double charging", 4000),
+        );
         let inc = included(&b);
         assert!(inc.contains(&"payments-idempotency"), "{inc:?}");
         assert!(inc.contains(&"payments"));
@@ -612,8 +697,13 @@ mod tests {
         assert!(!b.xml.contains("MySQL"));
         assert!(inc.contains(&"ledger-db"), "graph neighbour of a matched node");
         assert!(!inc.contains(&"css"), "irrelevant convention dropped: {inc:?}");
-        assert!(b.xml.contains("<rejected option=\"Braintree\">weaker SCA support</rejected>"));
-        assert!(b.xml.contains("<dead_ends"), "rejected Elasticsearch still surfaced as a dead end");
+        assert!(b
+            .xml
+            .contains("<rejected option=\"Braintree\">weaker SCA support</rejected>"));
+        assert!(
+            b.xml.contains("<dead_ends"),
+            "rejected Elasticsearch still surfaced as a dead end"
+        );
         assert!(b.xml.contains("<handoff"));
         assert!(!b.over_budget);
         assert_eq!(b.tokens, count_tokens(&b.xml));
@@ -647,7 +737,9 @@ mod tests {
         req.prompt_vars = json!({"feature": "refunds & <voids>"}).as_object().unwrap().clone();
         let b = build_context(&doc, &req);
         assert_eq!(included(&b), vec!["ADR-0002"]);
-        assert!(b.xml.contains("<prompt name=\"impl\">Implement refunds &amp; &lt;voids&gt; following the context.</prompt>"));
+        assert!(b
+            .xml
+            .contains("<prompt name=\"impl\">Implement refunds &amp; &lt;voids&gt; following the context.</prompt>"));
         assert_eq!(b.prompt.as_ref().unwrap().missing.len(), 0);
         assert!(!b.xml.contains("dead_ends"));
     }

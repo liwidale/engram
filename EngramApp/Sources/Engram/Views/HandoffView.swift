@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// Deterministic agent checkpoint, edited as structured fields instead of a chat summary.
 struct HandoffView: View {
     var model: WorkspaceModel
 

@@ -1,48 +1,37 @@
-//! Lightweight lexical analysis shared by the context ranker and the health auditor.
-
 const STOPWORDS: &[&str] = &[
-    "a", "about", "after", "all", "also", "an", "and", "any", "are", "as", "at", "be", "been", "before", "being", "but",
-    "by", "can", "could", "did", "do", "does", "doing", "for", "from", "had", "has", "have", "having", "how", "i", "if",
-    "in", "into", "is", "it", "its", "just", "me", "more", "most", "my", "new", "now", "of", "on", "once", "only", "or",
-    "other", "our", "out", "over", "own", "same", "so", "some", "such", "than", "that", "the", "their", "them", "then",
-    "there", "these", "they", "this", "those", "through", "to", "too", "under", "up", "very", "was", "we", "were",
-    "what", "when", "where", "which", "while", "who", "why", "will", "with", "would", "you", "your", "need", "needs",
-    "want", "make", "get", "let", "please", "like", "add", "use", "using", "used", "should", "must", "never", "always",
-    "not", "no", "don", "t", "avoid", "prefer",
+    "a", "about", "after", "all", "also", "an", "and", "any", "are", "as", "at", "be", "been", "before", "being",
+    "but", "by", "can", "could", "did", "do", "does", "doing", "for", "from", "had", "has", "have", "having", "how",
+    "i", "if", "in", "into", "is", "it", "its", "just", "me", "more", "most", "my", "new", "now", "of", "on", "once",
+    "only", "or", "other", "our", "out", "over", "own", "same", "so", "some", "such", "than", "that", "the", "their",
+    "them", "then", "there", "these", "they", "this", "those", "through", "to", "too", "under", "up", "very", "was",
+    "we", "were", "what", "when", "where", "which", "while", "who", "why", "will", "with", "would", "you", "your",
+    "need", "needs", "want", "make", "get", "let", "please", "like", "add", "use", "using", "used", "should", "must",
+    "never", "always", "not", "no", "don", "t", "avoid", "prefer",
 ];
 
 pub fn is_stopword(w: &str) -> bool {
     STOPWORDS.contains(&w)
 }
 
-/// Conservative suffix stripping: enough to match "services"/"service", "caching"/"cache".
 pub fn stem(w: &str) -> String {
     let n = w.len();
     if n <= 3 || !w.is_ascii() {
         return w.to_owned();
     }
-    for (suffix, replacement, min) in [
-        ("ies", "y", 5),
-        ("ing", "", 6),
-        ("ed", "", 5),
-        ("s", "", 4),
-    ] {
+    for (suffix, replacement, min) in [("ies", "y", 5), ("ing", "", 6), ("ed", "", 5), ("s", "", 4)] {
         if n >= min && w.ends_with(suffix) && !w.ends_with("ss") && !w.ends_with("us") {
             let mut s = w[..n - suffix.len()].to_owned();
             s.push_str(replacement);
-            if suffix == "ing" || suffix == "ed" {
-                // "caching" -> "cach" -> "cache"; "queued" -> "queu" -> "queue"
-                if s.ends_with("ch") || s.ends_with('u') || s.ends_with('v') || s.ends_with('z') {
+            if (suffix == "ing" || suffix == "ed")
+                && (s.ends_with("ch") || s.ends_with('u') || s.ends_with('v') || s.ends_with('z')) {
                     s.push('e');
                 }
-            }
             return s;
         }
     }
     w.to_owned()
 }
 
-/// Raw lowercase words (letters, digits, `_`, `.`, `/`, `-` kept inside identifiers).
 pub fn words(text: &str) -> impl Iterator<Item = String> + '_ {
     text.split(|c: char| !(c.is_alphanumeric() || matches!(c, '_' | '-' | '.' | '/')))
         .map(|w| w.trim_matches(|c: char| matches!(c, '-' | '.' | '/')))
@@ -50,8 +39,6 @@ pub fn words(text: &str) -> impl Iterator<Item = String> + '_ {
         .map(str::to_lowercase)
 }
 
-/// Index terms: stemmed words without stopwords, plus the parts of compound identifiers
-/// (`auth-service` yields `auth-service`, `auth`, `service`).
 pub fn terms(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     for w in words(text) {
@@ -76,19 +63,50 @@ pub enum Polarity {
 }
 
 const NEGATIVE_CUES: &[&str] = &[
-    "never", "don't", "dont", "do not", "does not", "must not", "mustn't", "should not", "shouldn't", "avoid",
-    "forbid", "forbidden", "prohibit", "disallow", "no longer", "stop using", "ban", "banned", "not allowed",
-    "deprecated", "instead of",
+    "never",
+    "don't",
+    "dont",
+    "do not",
+    "does not",
+    "must not",
+    "mustn't",
+    "should not",
+    "shouldn't",
+    "avoid",
+    "forbid",
+    "forbidden",
+    "prohibit",
+    "disallow",
+    "no longer",
+    "stop using",
+    "ban",
+    "banned",
+    "not allowed",
+    "deprecated",
+    "instead of",
 ];
-const POSITIVE_CUES: &[&str] = &["always", "must", "use ", "prefer", "required", "require", "should", "standardize on", "only use", "adopt"];
+const POSITIVE_CUES: &[&str] = &[
+    "always",
+    "must",
+    "use ",
+    "prefer",
+    "required",
+    "require",
+    "should",
+    "standardize on",
+    "only use",
+    "adopt",
+];
 
-/// Directive polarity of a sentence ("Always use X" vs "Never use X").
 pub fn polarity(sentence: &str) -> Polarity {
     let s = format!(" {} ", sentence.to_lowercase());
     let has = |cue: &str| {
         s.match_indices(cue).any(|(i, m)| {
             let before = s[..i].chars().next_back().is_none_or(|c| !c.is_alphanumeric());
-            let after = s[i + m.len()..].chars().next().is_none_or(|c| !c.is_alphanumeric() || m.ends_with(' '));
+            let after = s[i + m.len()..]
+                .chars()
+                .next()
+                .is_none_or(|c| !c.is_alphanumeric() || m.ends_with(' '));
             before && after
         })
     };
@@ -101,7 +119,6 @@ pub fn polarity(sentence: &str) -> Polarity {
     }
 }
 
-/// Splits prose into sentences / bullet items, ignoring fenced code blocks.
 pub fn sentences(text: &str) -> Vec<String> {
     let mut out = Vec::new();
     let mut in_fence = false;
@@ -125,7 +142,6 @@ pub fn sentences(text: &str) -> Vec<String> {
     out
 }
 
-/// True if `phrase` occurs in `haystack` on word boundaries (case-insensitive).
 pub fn contains_phrase(haystack: &str, phrase: &str) -> bool {
     let (h, p) = (haystack.to_lowercase(), phrase.trim().to_lowercase());
     if p.is_empty() {

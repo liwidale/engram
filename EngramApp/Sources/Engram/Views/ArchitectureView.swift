@@ -41,8 +41,6 @@ struct ArchitectureView: View {
         }
     }
 
-    // MARK: Canvas
-
     private func position(of node: PlacedNode) -> CGPoint {
         var p = CGPoint(x: node.position.x, y: node.position.y)
         if let drag, drag.id == node.id {
@@ -200,7 +198,6 @@ struct ArchitectureView: View {
         let xs = nodes.map(\.position.x), ys = nodes.map(\.position.y)
         let minX = xs.min()! - nodeSize.width, maxX = xs.max()! + nodeSize.width
         let minY = ys.min()! - nodeSize.height * 1.5, maxY = ys.max()! + nodeSize.height * 1.5
-        // Use the window's current content size as an estimate of the canvas size.
         let viewport = NSApp.keyWindow?.contentView?.bounds.size ?? CGSize(width: 900, height: 700)
         let available = CGSize(width: max(viewport.width - 560, 400), height: max(viewport.height - 60, 300))
         let s = min(available.width / (maxX - minX), available.height / (maxY - minY), 1.2)
@@ -228,8 +225,6 @@ struct ArchitectureView: View {
         if model.selectedNode == id { model.selectedNode = nil }
         model.perform(.removeNode(id: id), success: "Deleted node '\(id)'")
     }
-
-    // MARK: Drawing
 
     private func drawGrid(_ ctx: inout GraphicsContext) {
         let step = 28 * scale
@@ -266,7 +261,6 @@ struct ArchitectureView: View {
         let style = StrokeStyle(lineWidth: (hot ? 2 : 1.3) * max(scale, 0.6), lineCap: .round, dash: cycle ? [5, 4] : [])
         ctx.stroke(path, with: .color(color), style: style)
 
-        // Arrowhead pointing at the dependency.
         let tx = end.x - mid.x, ty = end.y - mid.y
         let tl = max(hypot(tx, ty), 0.001)
         let (vx, vy) = (tx / tl, ty / tl)
@@ -335,8 +329,6 @@ private struct NodeCard: View {
         .contentShape(RoundedRectangle(cornerRadius: 11))
     }
 }
-
-// MARK: - Inspector
 
 private struct NodeInspector: View {
     var model: WorkspaceModel

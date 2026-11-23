@@ -1,6 +1,5 @@
 import Foundation
 
-/// A document mutation, serialized to the JSON shape of `engram_core::ops::Op`.
 struct EngramOp {
     let name: String
     let fields: [String: Any]
@@ -17,13 +16,9 @@ struct EngramOp {
         return String(decoding: data, as: UTF8.self)
     }
 
-    // MARK: Project
-
     static func updateProject(name: String? = nil, description: String? = nil, repoRoot: String? = nil) -> EngramOp {
         EngramOp("update_project", ["name": name, "description": description, "repo_root": repoRoot])
     }
-
-    // MARK: Memory
 
     static func upsertMemory(
         key: String, category: MemoryCategory?, content: String, supersedesKey: String? = nil,
@@ -44,8 +39,6 @@ struct EngramOp {
     }
 
     static func deleteMemory(key: String) -> EngramOp { EngramOp("delete_memory", ["key": key]) }
-
-    // MARK: Architecture
 
     static func addNode(
         id: String, kind: NodeKind?, dependencies: [String]? = nil, label: String? = nil,
@@ -73,8 +66,6 @@ struct EngramOp {
         EngramOp("remove_dependency", ["from": from, "to": to])
     }
 
-    // MARK: Decisions
-
     static func logDecision(
         title: String?, context: String, decision: String, rejected: [RejectedAlternative],
         consequences: String? = nil, related: [String] = [], supersedes: String? = nil
@@ -100,8 +91,6 @@ struct EngramOp {
 
     static func deleteDecision(id: String) -> EngramOp { EngramOp("delete_decision", ["id": id]) }
 
-    // MARK: Prompts
-
     static func upsertPrompt(name: String, body: String, category: String?, description: String?, renameFrom: String? = nil) -> EngramOp {
         EngramOp("upsert_prompt", [
             "name": name, "body": body, "category": category, "description": description, "rename_from": renameFrom,
@@ -109,8 +98,6 @@ struct EngramOp {
     }
 
     static func deletePrompt(name: String) -> EngramOp { EngramOp("delete_prompt", ["name": name]) }
-
-    // MARK: Handoff
 
     static func updateHandoff(
         objective: String, progress: [ProgressItem], hypotheses: [String], blockers: [String], notes: String,

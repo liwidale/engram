@@ -77,7 +77,6 @@ struct SectionLabel: View {
     }
 }
 
-/// A titled card-style form section.
 struct Card<Content: View>: View {
     var title: String?
     var trailing: AnyView?
@@ -107,7 +106,6 @@ struct Card<Content: View>: View {
     }
 }
 
-/// Plain, borderless monospaced text editor used for Markdown and prompt bodies.
 struct CodeEditor: View {
     @Binding var text: String
     var placeholder: String = ""
@@ -133,7 +131,6 @@ struct CodeEditor: View {
     }
 }
 
-/// Edits a list of strings as one item per line.
 struct LineListEditor: View {
     @Binding var items: [String]
     var placeholder: String
@@ -192,7 +189,6 @@ struct TokenBadge: View {
     }
 }
 
-/// Debounces a value so expensive work (token counting, context ranking) runs on idle.
 @MainActor
 final class Debouncer {
     private var task: Task<Void, Never>?
@@ -208,7 +204,6 @@ final class Debouncer {
 }
 
 extension View {
-    /// Configures the hosting NSWindow (native tabbing for workspace windows).
     func hostingWindow(_ configure: @escaping (NSWindow) -> Void) -> some View {
         background(WindowAccessor(configure: configure))
     }

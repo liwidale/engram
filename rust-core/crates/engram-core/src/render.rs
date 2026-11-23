@@ -1,5 +1,3 @@
-//! Agent-facing renderings of each module (used by MCP resources and app exports).
-
 use crate::context::handoff_document_xml;
 use crate::graph::Graph;
 use crate::schema::*;
@@ -16,8 +14,13 @@ fn category_title(c: MemoryCategory) -> &'static str {
     }
 }
 
-const CATEGORY_ORDER: [MemoryCategory; 5] =
-    [MemoryCategory::Invariant, MemoryCategory::Rule, MemoryCategory::TechStack, MemoryCategory::Convention, MemoryCategory::Note];
+const CATEGORY_ORDER: [MemoryCategory; 5] = [
+    MemoryCategory::Invariant,
+    MemoryCategory::Rule,
+    MemoryCategory::TechStack,
+    MemoryCategory::Convention,
+    MemoryCategory::Note,
+];
 
 pub fn memory_entry_markdown(m: &MemoryEntry) -> String {
     let mut x = String::new();
@@ -37,7 +40,11 @@ pub fn memory_entry_markdown(m: &MemoryEntry) -> String {
         let _ = write!(x, " · tags: {}", m.tags.join(", "));
     }
     if !m.files.is_empty() {
-        let _ = write!(x, " · files: {}", m.files.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", "));
+        let _ = write!(
+            x,
+            " · files: {}",
+            m.files.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+        );
     }
     let _ = write!(x, "\n\n{}\n", m.body().trim());
     x
@@ -48,9 +55,15 @@ pub fn memory_markdown(doc: &EngramDocument) -> String {
     if !doc.project.description.trim().is_empty() {
         let _ = writeln!(x, "{}\n", doc.project.description.trim());
     }
-    x.push_str("Canonical project truth. Entries marked [SUPERSEDED] are kept for history only and must not be followed.\n");
+    x.push_str(
+        "Canonical project truth. Entries marked [SUPERSEDED] are kept for history only and must not be followed.\n",
+    );
     for cat in CATEGORY_ORDER {
-        let entries: Vec<&MemoryEntry> = doc.memory.iter().filter(|m| m.is_active() && m.category == cat).collect();
+        let entries: Vec<&MemoryEntry> = doc
+            .memory
+            .iter()
+            .filter(|m| m.is_active() && m.category == cat)
+            .collect();
         if entries.is_empty() {
             continue;
         }
@@ -82,7 +95,10 @@ pub fn decision_markdown(d: &Decision) -> String {
             None => "Deprecated".to_owned(),
         },
     };
-    let mut x = format!("## {}: {}\n_Status: {status} · recorded {}_\n\n", d.id, d.title, d.created_at);
+    let mut x = format!(
+        "## {}: {}\n_Status: {status} · recorded {}_\n\n",
+        d.id, d.title, d.created_at
+    );
     let _ = writeln!(x, "**Context**\n\n{}\n", d.context.trim());
     let _ = writeln!(x, "**Decision**\n\n{}\n", d.decision.trim());
     if !d.rejected_alternatives.is_empty() {
@@ -113,7 +129,12 @@ pub fn decisions_markdown(doc: &EngramDocument) -> String {
     }
     let active = doc.decisions.iter().filter(|d| d.is_active()).count();
     let _ = writeln!(x, "{active} active, {} deprecated.\n", doc.decisions.len() - active);
-    for d in doc.decisions.iter().filter(|d| d.is_active()).chain(doc.decisions.iter().filter(|d| !d.is_active())) {
+    for d in doc
+        .decisions
+        .iter()
+        .filter(|d| d.is_active())
+        .chain(doc.decisions.iter().filter(|d| !d.is_active()))
+    {
         x.push_str(&decision_markdown(d));
     }
     x
@@ -141,7 +162,11 @@ pub fn handoff_markdown(doc: &EngramDocument) -> String {
     for p in &h.progress {
         let _ = write!(x, "- [{}] {}", if p.verified { "x" } else { " " }, p.description);
         if !p.files.is_empty() {
-            let _ = write!(x, " ({})", p.files.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", "));
+            let _ = write!(
+                x,
+                " ({})",
+                p.files.iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+            );
         }
         x.push('\n');
     }

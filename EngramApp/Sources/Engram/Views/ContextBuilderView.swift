@@ -26,8 +26,6 @@ struct ContextBuilderView: View {
         }
     }
 
-    // MARK: Controls
-
     private var controls: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -127,8 +125,6 @@ struct ContextBuilderView: View {
         }
     }
 
-    // MARK: Preview
-
     private var preview: some View {
         VStack(spacing: 0) {
             HStack(spacing: 12) {
@@ -169,7 +165,6 @@ struct ContextBuilderView: View {
         }
     }
 
-    /// Light XML syntax colouring: tags in accent, attribute values dimmed.
     private func highlighted(_ xml: String) -> AttributedString {
         var out = AttributedString()
         var rest = xml[...]
@@ -184,8 +179,6 @@ struct ContextBuilderView: View {
         out += AttributedString(String(rest))
         return out
     }
-
-    // MARK: Building
 
     private func request() -> ContextRequest {
         var r = ContextRequest()

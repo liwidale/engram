@@ -1,9 +1,3 @@
-//! Git-friendly multi-line text.
-//!
-//! Markdown bodies are serialized as a JSON array of lines when they span more than one line,
-//! so editing a single sentence produces a single-line diff instead of rewriting one huge
-//! escaped string. Single-line values stay plain strings. Both shapes deserialize.
-
 use serde::de::{self, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use std::fmt;

@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// Cmd+K: fuzzy search across commands, modules and every entity in the file.
 struct CommandPalette: View {
     var model: WorkspaceModel
     @State private var query = ""
@@ -112,8 +111,6 @@ struct CommandPalette: View {
         items[cursor].run()
     }
 
-    // MARK: Catalog
-
     private var catalog: [Item] {
         let m = model
         var items: [Item] = [
@@ -182,7 +179,6 @@ struct CommandPalette: View {
 }
 
 enum FuzzyMatch {
-    /// Subsequence match scored by contiguity and word-boundary hits; 0 means no match.
     static func score(_ query: String, _ candidate: String) -> Int {
         let q = Array(query.lowercased()), c = Array(candidate.lowercased())
         guard !q.isEmpty, !c.isEmpty else { return 0 }
