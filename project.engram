@@ -1,0 +1,375 @@
+{
+  "format": "engram",
+  "version": 1,
+  "revision": 30,
+  "project": {
+    "name": "Engram",
+    "description": "",
+    "created_at": "2026-11-23T08:15:17Z",
+    "updated_at": "2026-11-23T12:50:29Z"
+  },
+  "memory": [
+    {
+      "key": "single-writer",
+      "category": "invariant",
+      "status": "active",
+      "pinned": true,
+      "content": [
+        "Every mutation of a `.engram` file goes through `engram_core::ops::Op` executed inside `Store::transact`.",
+        "",
+        "- The macOS app reaches it via the C ABI (`engram_apply`).",
+        "- Agents reach it via `engram-mcp` tools.",
+        "- Nothing else writes the file."
+      ],
+      "files": [
+        "rust-core/crates/engram-core/src/ops.rs",
+        "rust-core/crates/engram-core/src/store.rs"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "atomic-writes",
+      "category": "invariant",
+      "status": "active",
+      "content": "Writes take an exclusive `flock` on the sidecar `.<name>.engram.lock`, re-read from disk, validate, then replace the file with temp + fsync + rename. Concurrent writers must never lose updates.",
+      "files": [
+        "rust-core/crates/engram-core/src/store.rs"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "tech-stack",
+      "category": "tech_stack",
+      "status": "active",
+      "content": [
+        "- **Core:** Rust 2021, serde_json, tiktoken-rs (o200k_base), tokio for the stdio server",
+        "- **App:** Swift 5.9 language mode, SwiftUI, macOS 14+",
+        "- **Bridge:** static `libengram_core.a` + cbindgen header, imported as the `CEngramCore` module"
+      ],
+      "files": [
+        "rust-core/Cargo.toml",
+        "EngramApp/Package.swift"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "git-friendly-format",
+      "category": "rule",
+      "status": "active",
+      "content": "The `.engram` format is pretty-printed JSON with two-space indent and a trailing newline. Multi-line Markdown is stored as an array of lines so diffs stay line-level. Never reorder arrays on save.",
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "ffi-envelope",
+      "category": "convention",
+      "status": "active",
+      "content": "FFI calls return a JSON envelope `{ok, data | error{code,message}}`. Strings returned by Rust are freed with `engram_string_free`. Panics are caught at the boundary.",
+      "files": [
+        "rust-core/crates/engram-core/src/ffi.rs",
+        "EngramApp/Sources/Engram/Core/EngramEngine.swift"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "ui-state",
+      "category": "convention",
+      "status": "active",
+      "content": "SwiftUI state lives in `WorkspaceModel` (one per window, `@Observable`). Views never decode files themselves; they read the cached snapshot and send `EngramOp`s.",
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "build-tooling",
+      "category": "note",
+      "status": "active",
+      "content": "Build with `./build.sh` (universal arm64 + x86_64) or `./build.sh --native --debug` for local iteration; add `--test` to run the Rust and Swift suites. The script assembles `build/Engram.app` and embeds engram-mcp next to the app executable.",
+      "files": [
+        "build.sh"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T12:50:29Z"
+    },
+    {
+      "key": "tokenizer-old",
+      "category": "tech_stack",
+      "status": "superseded",
+      "content": "Token counts use cl100k_base.",
+      "superseded_by": "tokenizer",
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "tokenizer",
+      "category": "tech_stack",
+      "status": "active",
+      "content": "Token counts use o200k_base via tiktoken-rs. Counts are deterministic approximations for non-OpenAI models.",
+      "files": [
+        "rust-core/crates/engram-core/src/tokens.rs"
+      ],
+      "supersedes": "tokenizer-old",
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "key": "live-reload-check",
+      "category": "note",
+      "status": "active",
+      "content": "The app live-reloads when engram-mcp writes the open file: the watcher re-arms after each atomic rename and only refreshes when the on-disk fingerprint differs from the app's own snapshot. Covered by `EngramApp/Tests/EngramTests/BridgeTests.swift`.",
+      "files": [
+        "EngramApp/Sources/Engram/Core/FileWatcher.swift"
+      ],
+      "created_at": "2026-11-23T12:50:12Z",
+      "updated_at": "2026-11-23T12:50:29Z"
+    }
+  ],
+  "architecture": {
+    "nodes": [
+      {
+        "id": "engram-core",
+        "type": "library",
+        "description": "Schema, persistence, graph model, Context Builder, Context Health and the C ABI.",
+        "path": "rust-core/crates/engram-core",
+        "depends_on": [
+          "engram-file"
+        ]
+      },
+      {
+        "id": "engram-file",
+        "type": "database",
+        "label": ".engram file",
+        "description": "Git-versioned JSON project memory on disk.",
+        "depends_on": []
+      },
+      {
+        "id": "engram-mcp",
+        "type": "service",
+        "description": "MCP JSON-RPC server over stdio for Claude Code, Cursor and Windsurf.",
+        "path": "rust-core/crates/engram-mcp",
+        "depends_on": [
+          "engram-core"
+        ]
+      },
+      {
+        "id": "engram-app",
+        "type": "ui",
+        "label": "Engram.app",
+        "description": "SwiftUI workspace: memory, architecture, decisions, prompts, context, health, handoff.",
+        "path": "EngramApp/Sources/Engram",
+        "depends_on": [
+          "ffi-bridge",
+          "file-watcher"
+        ]
+      },
+      {
+        "id": "ffi-bridge",
+        "type": "module",
+        "label": "EngramEngine (FFI)",
+        "description": "",
+        "path": "EngramApp/Sources/Engram/Core/EngramEngine.swift",
+        "depends_on": [
+          "engram-core"
+        ]
+      },
+      {
+        "id": "file-watcher",
+        "type": "module",
+        "description": "DispatchSource watcher; live-reloads when agents write.",
+        "path": "EngramApp/Sources/Engram/Core/FileWatcher.swift",
+        "depends_on": [
+          "engram-file"
+        ]
+      },
+      {
+        "id": "ai-agents",
+        "type": "external",
+        "label": "AI agents",
+        "description": "Claude Code, Cursor, Windsurf.",
+        "depends_on": [
+          "engram-mcp"
+        ]
+      }
+    ]
+  },
+  "decisions": [
+    {
+      "id": "ADR-0001",
+      "title": "Rust core with a C ABI, SwiftUI shell",
+      "status": "active",
+      "context": "The memory engine must be shared by a native macOS app and a headless MCP server, deterministic, and fast to start.",
+      "decision": "Implement the engine once in Rust, expose it to Swift through a cbindgen-generated C ABI, and compile engram-mcp from the same crate.",
+      "rejected_alternatives": [
+        {
+          "option": "Electron",
+          "reason": "heavy runtime, non-native windowing and shortcuts"
+        },
+        {
+          "option": "Pure Swift engine",
+          "reason": "the MCP server would need a second implementation"
+        },
+        {
+          "option": "UniFFI",
+          "reason": "extra codegen layer for a small JSON-shaped API"
+        }
+      ],
+      "related": [
+        "engram-core",
+        "ffi-bridge"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "id": "ADR-0002",
+      "title": "JSON with line-array Markdown as the file format",
+      "status": "active",
+      "context": "Project memory must be human-readable, diffable in Git and trivially parseable by agents and tools.",
+      "decision": "Store pretty-printed JSON; multi-line Markdown becomes an array of lines.",
+      "rejected_alternatives": [
+        {
+          "option": "SQLite",
+          "reason": "binary, unreviewable diffs"
+        },
+        {
+          "option": "YAML",
+          "reason": "ambiguous typing and indentation-sensitive merges"
+        },
+        {
+          "option": "TOML",
+          "reason": "awkward for deeply nested arrays of tables"
+        }
+      ],
+      "related": [
+        "git-friendly-format",
+        "engram-file"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "id": "ADR-0003",
+      "title": "Advisory lock + atomic rename for concurrency",
+      "status": "active",
+      "context": "The app and several MCP processes may write the same file at once.",
+      "decision": "Serialize writers with flock on a sidecar lock file and replace the file atomically; the app watches the path and reloads.",
+      "rejected_alternatives": [
+        {
+          "option": "Last-writer-wins full document saves",
+          "reason": "silently drops agent updates"
+        },
+        {
+          "option": "A long-running daemon",
+          "reason": "extra process to manage; MCP clients spawn servers on demand"
+        }
+      ],
+      "related": [
+        "atomic-writes",
+        "file-watcher"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "id": "ADR-0004",
+      "title": "SwiftPM build without Xcode",
+      "status": "active",
+      "context": "The build machine only has the Command Line Tools.",
+      "decision": "Build the app with SwiftPM per architecture, lipo the slices, and assemble the bundle in build.sh.",
+      "rejected_alternatives": [
+        {
+          "option": "Require Xcode",
+          "reason": "not installed; contributors should not need it to build"
+        }
+      ],
+      "related": [
+        "engram-app"
+      ],
+      "created_at": "2026-11-23T12:50:12Z",
+      "updated_at": "2026-11-23T12:50:12Z"
+    }
+  ],
+  "prompts": [
+    {
+      "name": "implement-feature",
+      "category": "Build",
+      "description": "Kick off a feature with project guardrails",
+      "body": [
+        "You are working on {{project}}.",
+        "",
+        "Task: {{task}}",
+        "",
+        "Before writing code, read engram://handoff and call build_context. Respect every invariant and never re-propose a rejected alternative. When done, call update_handoff with verified progress and the next atomic step."
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "name": "review-diff",
+      "category": "Review",
+      "description": "Architecture-aware code review",
+      "body": [
+        "Review the diff below against the project's invariants and decision log. Flag anything that contradicts an active ADR.",
+        "",
+        "Focus: {{focus}}",
+        "",
+        "{{diff}}"
+      ],
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    },
+    {
+      "name": "record-decision",
+      "category": "Memory",
+      "body": "Summarize the decision we just made as an ADR: context, decision, and every alternative we rejected with the reason. Then call log_decision.",
+      "created_at": "2026-11-23T08:15:17Z",
+      "updated_at": "2026-11-23T08:15:17Z"
+    }
+  ],
+  "handoff": {
+    "objective": "Ship Engram v0.1: Rust core, engram-mcp and the native SwiftUI app.",
+    "progress": [
+      {
+        "description": "Rust core: schema, store, ops, graph, Context Builder, Context Health, C ABI (45 tests green)",
+        "files": [
+          "rust-core/crates/engram-core/src"
+        ],
+        "verified": true
+      },
+      {
+        "description": "engram-mcp stdio server, 9 tools, 5 resources, prompts; end-to-end stdio test",
+        "files": [
+          "rust-core/crates/engram-mcp/src/server.rs",
+          "rust-core/crates/engram-mcp/tests/stdio.rs"
+        ],
+        "verified": true
+      },
+      {
+        "description": "SwiftUI app with all seven modules, Cmd+K palette, Copy MCP Config, live reload",
+        "files": [
+          "EngramApp/Sources/Engram"
+        ],
+        "verified": true
+      },
+      {
+        "description": "Swift bridge tests (decoding, ops, watcher) and universal release build",
+        "files": [
+          "EngramApp/Tests/EngramTests/BridgeTests.swift",
+          "build.sh"
+        ],
+        "verified": true
+      }
+    ],
+    "working_memory": {
+      "hypotheses": [],
+      "blockers": [],
+      "notes": "UI was verified by build, tests and runtime checks only; no visual pass was done on screen."
+    },
+    "next_step": "Do a hands-on visual pass of every module in light and dark mode and fix layout issues.",
+    "updated_at": "2026-11-23T12:50:29Z",
+    "updated_by": "seed-script"
+  }
+}
