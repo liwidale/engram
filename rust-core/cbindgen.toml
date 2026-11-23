@@ -10,7 +10,8 @@ no_includes = true
 
 [export]
 prefix = ""
-include = ["EngramHandle"]
+include = []
+exclude = ["MemoryCategory", "NodeKind"]
 
 [parse]
 parse_deps = false

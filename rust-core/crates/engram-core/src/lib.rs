@@ -4,6 +4,7 @@
 pub mod analysis;
 pub mod context;
 pub mod error;
+pub mod ffi;
 pub mod graph;
 pub mod health;
 pub mod render;
