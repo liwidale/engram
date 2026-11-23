@@ -18,9 +18,9 @@ struct MemoryView: View {
                 } else {
                     EmptyState(
                         symbol: "brain",
-                        title: "Project Memory",
-                        message: "Canonical truth for this codebase: rules, tech stack, architecture invariants and conventions. Agents read it through engram://memory.",
-                        action: ("New Entry", { composer = .new })
+                        title: "Project memory",
+                        message: "Rules, tech stack, architecture invariants and conventions for this codebase appear here. Agents read them through engram://memory. Add your first entry to start.",
+                        action: ("New entry", { composer = .new })
                     )
                 }
             }
@@ -52,11 +52,11 @@ struct MemoryView: View {
                 SearchField(text: $search, prompt: "Filter memory")
                 Menu {
                     Picker("Category", selection: $categoryFilter) {
-                        Text("All Categories").tag(MemoryCategory?.none)
+                        Text("All categories").tag(MemoryCategory?.none)
                         ForEach(MemoryCategory.allCases) { Label($0.title, systemImage: $0.symbol).tag(Optional($0)) }
                     }
                     .pickerStyle(.inline)
-                    Toggle("Show Superseded", isOn: $showSuperseded)
+                    Toggle("Show superseded", isOn: $showSuperseded)
                 } label: {
                     Image(systemName: categoryFilter == nil && showSuperseded ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
                 }
@@ -86,7 +86,7 @@ struct MemoryView: View {
             .listStyle(.inset)
             .overlay {
                 if filtered.isEmpty {
-                    Text(model.document?.memory.isEmpty == true ? "No entries yet" : "No matches")
+                    Text(model.document?.memory.isEmpty == true ? String(localized: "No entries yet") : String(localized: "No matches"))
                         .foregroundStyle(.tertiary)
                 }
             }
@@ -96,15 +96,15 @@ struct MemoryView: View {
     @ViewBuilder
     private func menu(for e: MemoryEntry) -> some View {
         Button("Copy as Markdown") { model.copy("### \(e.key)\n\n\(e.content)", message: "Copied '\(e.key)'") }
-        Button(e.pinned ? "Unpin" : "Pin to Every Context") {
+        Button(e.pinned ? "Unpin" : "Pin to every context") {
             model.perform(.upsertMemory(key: e.key, category: nil, content: e.content, pinned: !e.pinned))
         }
         Divider()
         if e.isActive {
-            Button("Supersede with New Entry…") { composer = .supersede(e) }
-            Button("Mark Superseded") { model.perform(.setMemoryStatus(key: e.key, .superseded)) }
+            Button("Supersede with new entry…") { composer = .supersede(e) }
+            Button("Mark superseded") { model.perform(.setMemoryStatus(key: e.key, .superseded)) }
         } else {
-            Button("Restore as Active") { model.perform(.setMemoryStatus(key: e.key, .active)) }
+            Button("Restore as active") { model.perform(.setMemoryStatus(key: e.key, .active)) }
         }
         Divider()
         Button("Delete", role: .destructive) {
@@ -222,10 +222,10 @@ private struct MemoryEditor: View {
             Menu {
                 Button("Copy as Markdown") { model.copy("### \(entry.key)\n\n\(content)", message: "Copied '\(entry.key)'") }
                 if entry.isActive {
-                    Button("Supersede with New Entry…", action: onSupersede)
-                    Button("Mark Superseded") { commit(); model.perform(.setMemoryStatus(key: entry.key, .superseded)) }
+                    Button("Supersede with new entry…", action: onSupersede)
+                    Button("Mark superseded") { commit(); model.perform(.setMemoryStatus(key: entry.key, .superseded)) }
                 } else {
-                    Button("Restore as Active") { model.perform(.setMemoryStatus(key: entry.key, .active)) }
+                    Button("Restore as active") { model.perform(.setMemoryStatus(key: entry.key, .active)) }
                 }
                 Divider()
                 Button("Delete", role: .destructive) {
@@ -244,7 +244,7 @@ private struct MemoryEditor: View {
 
     @ViewBuilder
     private var editorBody: some View {
-        let editor = CodeEditor(text: $content, placeholder: "Markdown. Prefix with [SUPERSEDED] to retire this entry.", minHeight: 200)
+        let editor = CodeEditor(text: $content, placeholder: "Markdown. Start with [SUPERSEDED] to retire this entry.", minHeight: 200)
             .padding(12)
         let preview = ScrollView {
             MarkdownView(text: content).padding(18)
@@ -290,7 +290,7 @@ private struct MemoryEditor: View {
                 }
                 Spacer()
                 TokenBadge(tokens: tokens)
-                Text(dirty ? "Edited" : "Saved \(EngramDate.relativeString(entry.updatedAt))")
+                Text(dirty ? String(localized: "Edited") : String(localized: "Saved \(EngramDate.relativeString(entry.updatedAt))"))
                     .font(.caption)
                     .foregroundStyle(dirty ? Theme.accent : Color.secondary)
             }
@@ -358,10 +358,10 @@ struct MemoryComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(supersedes == nil ? "New Memory Entry" : "Supersede '\(supersedes!)'")
+            Text(supersedes == nil ? String(localized: "New memory entry") : String(localized: "Supersede '\(supersedes!)'"))
                 .font(.title2.weight(.semibold))
             if supersedes != nil {
-                Text("The old entry is tagged [SUPERSEDED], linked to this one and excluded from all future agent context.")
+                Text("The old entry is tagged [SUPERSEDED], linked to this one and left out of future agent context.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }

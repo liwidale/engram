@@ -1,13 +1,15 @@
 import SwiftUI
 
 struct PromptVaultView: View {
+    static let uncategorized = String(localized: "Uncategorized")
+
     @Bindable var model: WorkspaceModel
     @State private var search = ""
 
     private var prompts: [Prompt] { model.document?.prompts ?? [] }
 
     private var categories: [String] {
-        Array(Set(prompts.map { $0.category.isEmpty ? "Uncategorized" : $0.category })).sorted()
+        Array(Set(prompts.map { $0.category.isEmpty ? Self.uncategorized : $0.category })).sorted()
     }
 
     var body: some View {
@@ -20,9 +22,9 @@ struct PromptVaultView: View {
                 } else {
                     EmptyState(
                         symbol: "text.quote",
-                        title: "Prompt Vault",
-                        message: "Project-specific prompts and templates with {{variable}} placeholders. Agents fetch them with get_prompt.",
-                        action: ("New Prompt", newPrompt)
+                        title: "Prompt vault",
+                        message: "Prompts and templates for this project appear here, with {{variable}} placeholders. Agents fetch them with get_prompt. Add your first prompt to start.",
+                        action: ("New prompt", newPrompt)
                     )
                 }
             }
@@ -50,7 +52,7 @@ struct PromptVaultView: View {
                 let q = search.lowercased()
                 ForEach(categories, id: \.self) { cat in
                     let items = prompts.filter {
-                        ($0.category.isEmpty ? "Uncategorized" : $0.category) == cat
+                        ($0.category.isEmpty ? Self.uncategorized : $0.category) == cat
                             && (q.isEmpty || $0.name.lowercased().contains(q) || $0.body.lowercased().contains(q))
                     }
                     if !items.isEmpty {
@@ -66,7 +68,7 @@ struct PromptVaultView: View {
                                 .padding(.vertical, 2)
                                 .tag(p.name)
                                 .contextMenu {
-                                    Button("Copy Raw Template") { model.copy(p.body, message: "Copied '\(p.name)'") }
+                                    Button("Copy template") { model.copy(p.body, message: "Copied '\(p.name)'") }
                                     Button("Duplicate") { duplicate(p) }
                                     Divider()
                                     Button("Delete", role: .destructive) { delete(p) }
@@ -151,7 +153,7 @@ private struct PromptEditor: View {
                     }
                 }
                 Menu {
-                    Button("Copy Raw Template") { model.copy(body_, message: "Copied template") }
+                    Button("Copy template") { model.copy(body_, message: "Copied template") }
                     Divider()
                     Button("Delete", role: .destructive) {
                         model.selectedPrompt = nil
@@ -170,7 +172,7 @@ private struct PromptEditor: View {
                     TextField("Category", text: $category).textFieldStyle(.plain).frame(width: 140)
                     if !categories.isEmpty {
                         Menu {
-                            ForEach(categories.filter { $0 != "Uncategorized" }, id: \.self) { c in Button(c) { category = c } }
+                            ForEach(categories.filter { $0 != PromptVaultView.uncategorized }, id: \.self) { c in Button(c) { category = c } }
                         } label: { Image(systemName: "chevron.down") }
                             .menuStyle(.borderlessButton)
                             .fixedSize()
@@ -194,11 +196,11 @@ private struct PromptEditor: View {
                     Text("No variables").font(.caption).foregroundStyle(.tertiary)
                 } else {
                     Image(systemName: "curlybraces").font(.caption).foregroundStyle(.secondary)
-                    ForEach(variables, id: \.self) { Chip(text: $0, color: Theme.accent) }
+                    ForEach(variables, id: \.self) { Chip(text: "\($0)", color: Theme.accent) }
                 }
                 Spacer()
                 TokenBadge(tokens: tokens)
-                Text(dirty ? "Edited" : "Saved").font(.caption).foregroundStyle(dirty ? Theme.accent : .secondary)
+                Text(dirty ? String(localized: "Edited") : String(localized: "Saved")).font(.caption).foregroundStyle(dirty ? Theme.accent : .secondary)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
@@ -251,7 +253,7 @@ private struct PromptEditor: View {
             let r = try engine.renderPrompt(name.trimmingCharacters(in: .whitespaces), variables: values)
             model.copy(r.text, message: r.missing.isEmpty ? "Prompt copied" : "Copied with unfilled: \(r.missing.joined(separator: ", "))")
         } catch {
-            model.show(.error, error.localizedDescription)
+            model.show(.error, verbatim: error.localizedDescription)
         }
     }
 }
@@ -276,7 +278,7 @@ private struct VariableForm: View {
             }
             HStack {
                 Spacer()
-                Button("Copy Prompt") {
+                Button("Copy prompt") {
                     persist()
                     onCopy(values.filter { !$0.value.isEmpty })
                 }

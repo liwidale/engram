@@ -17,9 +17,9 @@ struct ArchitectureView: View {
                 if model.layout.nodes.isEmpty {
                     EmptyState(
                         symbol: "point.3.connected.trianglepath.dotted",
-                        title: "Architecture Map",
-                        message: "Model modules, services and databases with directional dependencies. Agents add nodes with add_architecture_node.",
-                        action: ("Add Node", { showComposer = true })
+                        title: "Architecture map",
+                        message: "Modules, services and databases with their dependencies appear here as a graph. Add a node, or let an agent call add_architecture_node.",
+                        action: ("Add node", { showComposer = true })
                     )
                 } else {
                     canvas
@@ -110,10 +110,10 @@ struct ArchitectureView: View {
                         }
                 )
                 .contextMenu {
-                    Button("Reset to Auto Layout") { model.perform(.resetNodePosition(id: node.id)) }
+                    Button("Reset to automatic layout") { model.perform(.resetNodePosition(id: node.id)) }
                     Button("Copy Id") { model.copy(node.id, message: "Copied '\(node.id)'") }
                     Divider()
-                    Button("Delete Node", role: .destructive) { delete(node.id) }
+                    Button("Delete node", role: .destructive) { delete(node.id) }
                 }
             }
         }
@@ -140,14 +140,14 @@ struct ArchitectureView: View {
                 if !model.layout.missing.isEmpty {
                     Chip(text: "\(model.layout.missing.count) missing dependency", color: Theme.color(for: .warning), symbol: "exclamationmark.triangle")
                 }
-                Button { showComposer = true } label: { Label("Add Node", systemImage: "plus") }
+                Button { showComposer = true } label: { Label("Add node", systemImage: "plus") }
                 Menu {
-                    Button("Fit to Window", action: fit)
-                    Button("Reset All to Auto Layout") {
+                    Button("Fit to window", action: fit)
+                    Button("Reset all to automatic layout") {
                         for n in model.layout.nodes where n.manual { model.perform(.resetNodePosition(id: n.id)) }
                         fit()
                     }
-                    Button("Copy Graph as JSON") {
+                    Button("Copy graph as JSON") {
                         if let s = try? model.engine?.render(.architecture) { model.copy(s, message: "Architecture copied") }
                     }
                 } label: {
@@ -427,10 +427,10 @@ private struct NodeInspector: View {
 
                 HStack {
                     if node.position != nil {
-                        Button("Reset Position") { model.perform(.resetNodePosition(id: node.id)) }
+                        Button("Reset position") { model.perform(.resetNodePosition(id: node.id)) }
                     }
                     Spacer()
-                    Button("Delete Node", role: .destructive) {
+                    Button("Delete node", role: .destructive) {
                         model.selectedNode = nil
                         model.perform(.removeNode(id: node.id), success: "Deleted node '\(node.id)'")
                     }
@@ -465,7 +465,7 @@ private struct NodeComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text("Add Architecture Node").font(.title2.weight(.semibold))
+            Text("Add architecture node").font(.title2.weight(.semibold))
             Form {
                 TextField("Id", text: $id, prompt: Text("billing-api")).font(Theme.mono)
                 TextField("Label", text: $label, prompt: Text("Billing API"))

@@ -13,7 +13,7 @@ struct WelcomeView: View {
                         .font(.system(size: 44, weight: .light))
                         .foregroundStyle(Theme.accent)
                     Text("Engram").font(.largeTitle.weight(.bold))
-                    Text("Deterministic project memory for humans and AI agents.")
+                    Text("Project memory for you and your AI agents, versioned with your code.")
                         .foregroundStyle(.secondary)
                 }
                 VStack(alignment: .leading, spacing: 8) {

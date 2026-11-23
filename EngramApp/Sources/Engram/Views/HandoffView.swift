@@ -126,7 +126,7 @@ private struct HandoffEditor: View {
     private var header: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Agent Handoff").font(.title3.weight(.semibold))
+                Text("Agent handoff").font(.title3.weight(.semibold))
                 Text(handoff.updatedAt.map { "Updated \(EngramDate.relativeString($0))" + (handoff.updatedBy.map { " by \($0)" } ?? "") }
                     ?? "Agents overwrite this with update_handoff before they stop.")
                     .font(.caption)
@@ -134,7 +134,7 @@ private struct HandoffEditor: View {
             }
             Spacer()
             if dirty {
-                Text(draft.isValid ? "Edited" : "Objective and next step are required")
+                Text(draft.isValid ? String(localized: "Edited") : String(localized: "Objective and next step are required"))
                     .font(.caption)
                     .foregroundStyle(draft.isValid ? Theme.accent : Theme.color(for: .warning))
             }
@@ -193,7 +193,7 @@ private struct HandoffEditor: View {
         do {
             if let s = try model.engine?.render(target) { model.copy(s, message: "Handoff copied") }
         } catch {
-            model.show(.error, error.localizedDescription)
+            model.show(.error, verbatim: error.localizedDescription)
         }
     }
 

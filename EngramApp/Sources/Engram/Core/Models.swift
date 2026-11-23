@@ -86,20 +86,20 @@ enum MemoryCategory: String, Decodable, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .invariant: "Invariants"
-        case .rule: "Rules"
-        case .techStack: "Tech Stack"
-        case .convention: "Conventions"
-        case .note: "Notes"
+        case .invariant: String(localized: "Invariants")
+        case .rule: String(localized: "Rules")
+        case .techStack: String(localized: "Tech stack")
+        case .convention: String(localized: "Conventions")
+        case .note: String(localized: "Notes")
         }
     }
     var singular: String {
         switch self {
-        case .invariant: "Invariant"
-        case .rule: "Rule"
-        case .techStack: "Tech Stack"
-        case .convention: "Convention"
-        case .note: "Note"
+        case .invariant: String(localized: "Invariant")
+        case .rule: String(localized: "Rule")
+        case .techStack: String(localized: "Tech stack")
+        case .convention: String(localized: "Convention")
+        case .note: String(localized: "Note")
         }
     }
     var symbol: String {
@@ -134,14 +134,24 @@ struct MemoryEntry: Decodable, Hashable, Identifiable {
     var summary: String {
         let body = content.replacingOccurrences(of: "[SUPERSEDED]", with: "", options: .caseInsensitive)
         return body.split(separator: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#-*> \t")) }
-            .first { !$0.isEmpty } ?? "Empty"
+            .first { !$0.isEmpty } ?? String(localized: "Empty")
     }
 }
 
 enum NodeKind: String, Decodable, CaseIterable, Identifiable, Hashable {
     case module, service, database, library, queue, ui, external
     var id: String { rawValue }
-    var title: String { rawValue == "ui" ? "UI" : rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .module: String(localized: "Module")
+        case .service: String(localized: "Service")
+        case .database: String(localized: "Database")
+        case .library: String(localized: "Library")
+        case .queue: String(localized: "Queue")
+        case .ui: String(localized: "UI")
+        case .external: String(localized: "External")
+        }
+    }
     var symbol: String {
         switch self {
         case .module: "square.stack.3d.up"
@@ -177,7 +187,12 @@ struct Architecture: Decodable, Hashable { var nodes: [ArchNode] }
 
 enum DecisionStatus: String, Decodable, CaseIterable, Hashable {
     case active, deprecated
-    var title: String { rawValue.capitalized }
+    var title: String {
+        switch self {
+        case .active: String(localized: "Active")
+        case .deprecated: String(localized: "Deprecated")
+        }
+    }
 }
 
 struct RejectedAlternative: Decodable, Hashable {
@@ -319,7 +334,20 @@ struct HealthIssue: Decodable, Hashable, Identifiable {
     var suggestion: String?
 
     var kindTitle: String {
-        kind.split(separator: "_").map { $0.capitalized }.joined(separator: " ")
+        switch kind {
+        case "missing_repo": String(localized: "Missing repository")
+        case "broken_path": String(localized: "Broken path")
+        case "zombie_reference": String(localized: "Zombie reference")
+        case "deprecated_reference": String(localized: "Deprecated reference")
+        case "deprecated_decision": String(localized: "Deprecated decision")
+        case "contradiction": String(localized: "Contradiction")
+        case "rejected_alternative_endorsed": String(localized: "Rejected alternative endorsed")
+        case "superseded_tag_mismatch": String(localized: "Superseded tag mismatch")
+        case "dependency_cycle": String(localized: "Dependency cycle")
+        case "stale_handoff": String(localized: "Stale handoff")
+        case "empty_content": String(localized: "Empty content")
+        default: kind
+        }
     }
 }
 
@@ -403,8 +431,8 @@ enum EngramDate {
     static func date(_ s: String?) -> Date? { s.flatMap { parser.date(from: $0) } }
 
     static func relativeString(_ s: String?) -> String {
-        guard let d = date(s) else { return "never" }
-        if abs(d.timeIntervalSinceNow) < 45 { return "just now" }
+        guard let d = date(s) else { return String(localized: "never") }
+        if abs(d.timeIntervalSinceNow) < 45 { return String(localized: "a moment ago") }
         return relative.localizedString(for: d, relativeTo: .now)
     }
 }

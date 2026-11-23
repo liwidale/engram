@@ -96,7 +96,7 @@ pub fn relative_time(rfc3339: Option<&str>) -> String {
     };
     let secs = (engram_core::time::now_unix() - at).max(0);
     match secs {
-        0..=44 => tr("just now").to_owned(),
+        0..=44 => tr("a moment ago").to_owned(),
         45..=3599 => crate::i18n::trf("{n} min ago", &[("n", &(secs / 60).max(1))]),
         3600..=86_399 => crate::i18n::trf("{n} h ago", &[("n", &(secs / 3600))]),
         _ => crate::i18n::trf("{n} d ago", &[("n", &(secs / 86_400))]),

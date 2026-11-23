@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 struct Chip: View {
-    var text: String
+    var text: String.LocalizationValue
     var color: Color = .secondary
     var symbol: String?
     var filled = false
@@ -10,7 +10,7 @@ struct Chip: View {
     var body: some View {
         HStack(spacing: 4) {
             if let symbol { Image(systemName: symbol).imageScale(.small) }
-            Text(text).lineLimit(1)
+            Text(String(localized: text)).lineLimit(1)
         }
         .font(.caption.weight(.medium))
         .padding(.horizontal, 7)
@@ -29,23 +29,23 @@ struct SupersededBadge: View {
 
 struct EmptyState: View {
     var symbol: String
-    var title: String
-    var message: String
-    var action: (title: String, run: () -> Void)?
+    var title: String.LocalizationValue
+    var message: String.LocalizationValue
+    var action: (title: String.LocalizationValue, run: () -> Void)?
 
     var body: some View {
         VStack(spacing: 10) {
             Image(systemName: symbol)
                 .font(.system(size: 34, weight: .light))
                 .foregroundStyle(.tertiary)
-            Text(title).font(.title3.weight(.semibold))
-            Text(message)
+            Text(String(localized: title)).font(.title3.weight(.semibold))
+            Text(String(localized: message))
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
             if let action {
-                Button(action.title, action: action.run)
+                Button(String(localized: action.title), action: action.run)
                     .buttonStyle(.borderedProminent)
                     .tint(Theme.accent)
                     .padding(.top, 4)
@@ -57,15 +57,15 @@ struct EmptyState: View {
 }
 
 struct SectionLabel: View {
-    var title: String
+    var title: String.LocalizationValue
     var trailing: String?
-    init(_ title: String, trailing: String? = nil) {
+    init(_ title: String.LocalizationValue, trailing: String? = nil) {
         self.title = title
         self.trailing = trailing
     }
     var body: some View {
         HStack {
-            Text(title.uppercased())
+            Text(String(localized: title).uppercased())
                 .font(.caption2.weight(.semibold))
                 .tracking(0.6)
                 .foregroundStyle(.secondary)
@@ -78,11 +78,11 @@ struct SectionLabel: View {
 }
 
 struct Card<Content: View>: View {
-    var title: String?
+    var title: String.LocalizationValue?
     var trailing: AnyView?
     @ViewBuilder var content: Content
 
-    init(_ title: String? = nil, trailing: AnyView? = nil, @ViewBuilder content: () -> Content) {
+    init(_ title: String.LocalizationValue? = nil, trailing: AnyView? = nil, @ViewBuilder content: () -> Content) {
         self.title = title
         self.trailing = trailing
         self.content = content()
@@ -108,7 +108,7 @@ struct Card<Content: View>: View {
 
 struct CodeEditor: View {
     @Binding var text: String
-    var placeholder: String = ""
+    var placeholder: String.LocalizationValue = ""
     var minHeight: CGFloat = 120
     var font: Font = Theme.mono
 
@@ -119,7 +119,7 @@ struct CodeEditor: View {
                 .scrollContentBackground(.hidden)
                 .padding(.horizontal, 2)
             if text.isEmpty {
-                Text(placeholder)
+                Text(String(localized: placeholder))
                     .font(font)
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 7)
@@ -133,7 +133,7 @@ struct CodeEditor: View {
 
 struct LineListEditor: View {
     @Binding var items: [String]
-    var placeholder: String
+    var placeholder: String.LocalizationValue
     @State private var text = ""
     @State private var synced: [String] = []
 
@@ -156,12 +156,12 @@ struct LineListEditor: View {
 
 struct SearchField: View {
     @Binding var text: String
-    var prompt: String
+    var prompt: String.LocalizationValue
 
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: "magnifyingglass").foregroundStyle(.tertiary)
-            TextField(prompt, text: $text).textFieldStyle(.plain)
+            TextField(String(localized: prompt), text: $text).textFieldStyle(.plain)
             if !text.isEmpty {
                 Button { text = "" } label: { Image(systemName: "xmark.circle.fill").foregroundStyle(.tertiary) }
                     .buttonStyle(.plain)
@@ -181,7 +181,7 @@ struct TokenBadge: View {
         let over = budget.map { tokens > $0 } ?? false
         HStack(spacing: 4) {
             Image(systemName: "number.square").imageScale(.small)
-            Text(budget.map { "\(tokens.formatted()) / \($0.formatted())" } ?? "\(tokens.formatted()) tok")
+            Text(budget.map { String(localized: "\(tokens) of \($0) tokens") } ?? String(localized: "\(tokens) tokens"))
                 .monospacedDigit()
         }
         .font(.caption.weight(.medium))

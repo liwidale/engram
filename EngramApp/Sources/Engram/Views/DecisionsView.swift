@@ -16,9 +16,9 @@ struct DecisionsView: View {
                 } else {
                     EmptyState(
                         symbol: "signpost.right.and.left",
-                        title: "Decision Log",
-                        message: "Architecture Decision Records with the alternatives you rejected and why, so agents never re-propose dead ends.",
-                        action: ("Log Decision", { composer = .new })
+                        title: "Decision log",
+                        message: "Decisions you made, with the alternatives you rejected and why. Agents read them so they never propose a dead end again. Log your first decision to start.",
+                        action: ("Log decision", { composer = .new })
                     )
                 }
             }
@@ -64,7 +64,7 @@ struct DecisionsView: View {
                         Button("Copy as Markdown") { copy(d) }
                         Divider()
                         if d.isActive {
-                            Button("Supersede with New Decision…") { composer = .supersede(d) }
+                            Button("Supersede with new decision…") { composer = .supersede(d) }
                             Button("Deprecate") { model.perform(.updateDecision(id: d.id, status: .deprecated)) }
                         } else {
                             Button("Reactivate") { model.perform(.updateDecision(id: d.id, status: .active)) }
@@ -202,7 +202,7 @@ private struct DecisionEditor: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(dirty ? "Edited" : "Saved").font(.caption).foregroundStyle(dirty ? Theme.accent : .secondary)
+                Text(dirty ? String(localized: "Edited") : String(localized: "Saved")).font(.caption).foregroundStyle(dirty ? Theme.accent : .secondary)
                 Button("Save") { commit() }.disabled(!dirty)
             }
             .padding(.horizontal, 16)
@@ -250,7 +250,7 @@ private struct DecisionEditor: View {
                 .toggleStyle(.button)
                 .help("Preview Markdown")
             Menu {
-                if decision.isActive { Button("Supersede with New Decision…", action: onSupersede) }
+                if decision.isActive { Button("Supersede with new decision…", action: onSupersede) }
                 Button("Delete", role: .destructive) {
                     model.selectedDecision = nil
                     model.perform(.deleteDecision(id: decision.id), success: "Deleted \(decision.id)")
@@ -264,7 +264,7 @@ private struct DecisionEditor: View {
     }
 
     @ViewBuilder
-    private func section(_ title: String, text: Binding<String>, placeholder: String) -> some View {
+    private func section(_ title: String.LocalizationValue, text: Binding<String>, placeholder: String.LocalizationValue) -> some View {
         Card(title) {
             if preview {
                 MarkdownView(text: text.wrappedValue.isEmpty ? "_Empty_" : text.wrappedValue)
@@ -309,7 +309,7 @@ private struct DecisionEditor: View {
                 FlowLayout(spacing: 6) {
                     ForEach(draft.related, id: \.self) { r in
                         HStack(spacing: 4) {
-                            Button { navigate(r) } label: { Chip(text: r, color: color(for: r), symbol: symbol(for: r)) }
+                            Button { navigate(r) } label: { Chip(text: "\(r)", color: color(for: r), symbol: symbol(for: r)) }
                                 .buttonStyle(.plain)
                             Button { draft.related.removeAll { $0 == r } } label: { Image(systemName: "xmark").font(.caption2) }
                                 .buttonStyle(.borderless)
@@ -402,9 +402,9 @@ struct DecisionComposer: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(supersedes.map { "Supersede \($0)" } ?? "Log Decision").font(.title2.weight(.semibold))
+                Text(supersedes.map { "Supersede \($0)" } ?? "Log decision").font(.title2.weight(.semibold))
                 Spacer()
-                Text(model.document?.decisions.isEmpty == false ? "next id assigned on save" : "ADR-0001")
+                Text(model.document?.decisions.isEmpty == false ? String(localized: "next id assigned on save") : String(localized: "ADR-0001"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
             }
@@ -428,7 +428,7 @@ struct DecisionComposer: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Log Decision") { save() }
+                Button("Log decision") { save() }
                     .keyboardShortcut(.defaultAction)
                     .disabled(context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || decision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -444,7 +444,7 @@ struct DecisionComposer: View {
         }
     }
 
-    private func labeled<C: View>(_ title: String, @ViewBuilder content: () -> C) -> some View {
+    private func labeled<C: View>(_ title: String.LocalizationValue, @ViewBuilder content: () -> C) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             SectionLabel(title)
             content()

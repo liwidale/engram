@@ -81,7 +81,7 @@ final class OpenRouter {
         let panel = NSOpenPanel()
         panel.allowedContentTypes = [.engram]
         panel.allowsMultipleSelection = true
-        panel.message = "Choose a project memory file"
+        panel.message = String(localized: "Choose a project memory file")
         if panel.runModal() == .OK { panel.urls.forEach(open) }
     }
 
@@ -89,8 +89,8 @@ final class OpenRouter {
         let panel = NSSavePanel()
         panel.allowedContentTypes = [.engram]
         panel.nameFieldStringValue = "project.engram"
-        panel.message = "Create a project memory file. Keep it next to your code so it is versioned with it."
-        panel.prompt = "Create"
+        panel.message = String(localized: "Create a project memory file. Keep it next to your code so it is versioned with it.")
+        panel.prompt = String(localized: "Create")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let name = url.deletingLastPathComponent().lastPathComponent
         do {
@@ -123,24 +123,24 @@ struct EngramCommands: Commands {
                 .keyboardShortcut("n")
             Button("Open…") { OpenRouter.shared.presentOpenPanel() }
                 .keyboardShortcut("o")
-            Menu("Open Recent") {
+            Menu("Open recent") {
                 ForEach(NSDocumentController.shared.recentDocumentURLs, id: \.self) { url in
                     Button(url.lastPathComponent) { OpenRouter.shared.open(url) }
                 }
                 Divider()
-                Button("Clear Menu") { NSDocumentController.shared.clearRecentDocuments(nil) }
+                Button("Clear menu") { NSDocumentController.shared.clearRecentDocuments(nil) }
             }
         }
         CommandGroup(replacing: .saveItem) {
             Button("Save") { workspace?.saveAll() }
                 .keyboardShortcut("s")
                 .disabled(workspace == nil)
-            Button("Reload from Disk") { workspace?.reloadFromDisk() }
+            Button("Reload from disk") { workspace?.reloadFromDisk() }
                 .keyboardShortcut("r")
                 .disabled(workspace == nil)
         }
         CommandMenu("Workspace") {
-            Button("Command Palette…") { workspace?.showPalette.toggle() }
+            Button("Command palette…") { workspace?.showPalette.toggle() }
                 .keyboardShortcut("k")
                 .disabled(workspace == nil)
             Divider()
@@ -150,17 +150,17 @@ struct EngramCommands: Commands {
                     .disabled(workspace == nil)
             }
             Divider()
-            Button("New Memory Entry") { workspace?.request(.newMemory, in: .memory) }
+            Button("New memory entry") { workspace?.request(.newMemory, in: .memory) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
-            Button("Log Decision") { workspace?.request(.newDecision, in: .decisions) }
+            Button("Log decision") { workspace?.request(.newDecision, in: .decisions) }
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
             Divider()
-            Button("Copy MCP Config") { workspace?.copyMCPConfig() }
+            Button("Copy MCP config") { workspace?.copyMCPConfig() }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
-            Button("Run Health Audit") {
+            Button("Run health audit") {
                 workspace?.module = .health
                 workspace?.runAudit()
             }

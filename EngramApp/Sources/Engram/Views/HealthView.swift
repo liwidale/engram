@@ -15,9 +15,9 @@ struct HealthView: View {
             } else {
                 EmptyState(
                     symbol: "stethoscope",
-                    title: "Context Health",
-                    message: "Scan this project memory against the codebase for broken file paths, zombie references, deprecated ADRs still in use and contradicting rules.",
-                    action: ("Run Audit", model.runAudit)
+                    title: "Context health",
+                    message: "Issues between this project memory and your codebase appear here: broken file paths, zombie references, deprecated decisions still in use and contradicting rules. Run an audit to check.",
+                    action: ("Run audit", model.runAudit)
                 )
             }
         }
@@ -44,12 +44,12 @@ struct HealthView: View {
             Spacer()
             Button("Change…", action: chooseRoot)
             if model.repoRoot != nil {
-                Button("Use .engram Folder") { model.perform(.updateProject(repoRoot: "")) }
+                Button("Use .engram folder") { model.perform(.updateProject(repoRoot: "")) }
             }
             Button {
                 model.runAudit()
             } label: {
-                Label("Run Audit", systemImage: "arrow.clockwise")
+                Label("Run audit", systemImage: "arrow.clockwise")
             }
             .buttonStyle(.borderedProminent)
             .tint(Theme.accent)
@@ -66,7 +66,7 @@ struct HealthView: View {
                 HStack(spacing: 20) {
                     ScoreGauge(score: r.score).frame(width: 112, height: 112)
                     VStack(alignment: .leading, spacing: 8) {
-                        Text(r.grade.replacingOccurrences(of: "_", with: " ").capitalized)
+                        Text(r.grade == "healthy" ? String(localized: "Healthy") : r.grade == "needs_attention" ? String(localized: "Needs attention") : String(localized: "Critical"))
                             .font(.title2.weight(.semibold))
                             .foregroundStyle(Theme.scoreColor(r.score))
                         Text("\(r.summary.pathsChecked) paths and \(r.summary.referencesChecked) references checked · scanned \(EngramDate.relativeString(r.scannedAt)) at revision \(r.revision)")
@@ -83,7 +83,7 @@ struct HealthView: View {
                     }
                     Spacer()
                     if model.isAuditing { ProgressView().controlSize(.small) }
-                    Button { model.copy(markdown(r), message: "Health report copied") } label: { Label("Copy Report", systemImage: "doc.on.doc") }
+                    Button { model.copy(markdown(r), message: "Health report copied") } label: { Label("Copy report", systemImage: "doc.on.doc") }
                 }
                 .padding(18)
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
@@ -97,7 +97,7 @@ struct HealthView: View {
                 if issues.isEmpty {
                     VStack(spacing: 8) {
                         Image(systemName: "checkmark.seal.fill").font(.system(size: 36)).foregroundStyle(.green)
-                        Text(r.issues.isEmpty ? "No issues. Agents get clean, current context." : "No issues at this severity.")
+                        Text(r.issues.isEmpty ? String(localized: "No issues. Agents get clean, current context.") : String(localized: "No issues at this severity."))
                             .foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity)
@@ -116,7 +116,7 @@ struct HealthView: View {
         Button {
             filter = filter == s ? nil : s
         } label: {
-            Chip(text: "\(count) \(s.rawValue)\(count == 1 || s == .info ? "" : "s")", color: Theme.color(for: s), symbol: symbol(s), filled: filter == s)
+            Chip(text: s == .error ? "\(count) errors" : s == .warning ? "\(count) warnings" : "\(count) info", color: Theme.color(for: s), symbol: symbol(s), filled: filter == s)
         }
         .buttonStyle(.plain)
     }
@@ -126,7 +126,7 @@ struct HealthView: View {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.directoryURL = model.resolvedRepoRoot
-        panel.message = "Choose the codebase this project memory describes"
+        panel.message = String(localized: "Choose the codebase this project memory describes")
         guard panel.runModal() == .OK, let url = panel.url else { return }
         let base = model.url.deletingLastPathComponent().standardizedFileURL.path
         let chosen = url.standardizedFileURL.path
@@ -200,7 +200,7 @@ private struct IssueRow: View {
                 .font(.title3)
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 6) {
-                    Chip(text: issue.kindTitle, color: Theme.color(for: issue.severity))
+                    Chip(text: "\(issue.kindTitle)", color: Theme.color(for: issue.severity))
                     Text("\(issue.subject.kind) · \(issue.subject.id)")
                         .font(.caption.monospaced())
                         .foregroundStyle(.secondary)

@@ -13,8 +13,8 @@ struct WorkspaceWindow: View {
                     EmptyState(
                         symbol: "exclamationmark.triangle",
                         title: "Couldn't open \(url.lastPathComponent)",
-                        message: error,
-                        action: ("Try Again", { model.open() })
+                        message: "\(error)",
+                        action: ("Try again", { model.open() })
                     )
                     .frame(minWidth: 520, minHeight: 360)
                 } else {
@@ -90,22 +90,22 @@ struct WorkspaceView: View {
             Button {
                 model.showPalette = true
             } label: {
-                Label("Command Palette", systemImage: "command")
+                Label("Command palette", systemImage: "command")
             }
-            .help("Command Palette (⌘K)")
+            .help("Command palette (⌘K)")
             Menu {
                 Button("Copy JSON for claude_desktop_config.json / .mcp.json") { model.copyMCPConfig() }
-                Button("Copy `claude mcp add` Command") {
+                Button("Copy `claude mcp add` command") {
                     if let cfg = model.mcpConfig() { model.copy(cfg.claudeCodeCommand, message: "Claude Code command copied") }
                 }
                 Divider()
                 Text("Server: \(model.mcpBinaryPath)")
             } label: {
-                Label("Copy MCP Config", systemImage: "point.3.filled.connected.trianglepath.dotted")
+                Label("Copy MCP config", systemImage: "point.3.filled.connected.trianglepath.dotted")
             } primaryAction: {
                 model.copyMCPConfig()
             }
-            .help("Copy MCP server config for this file (⇧⌘M)")
+            .help("Copy the MCP server config for this file (⇧⌘M)")
         }
     }
 }
@@ -242,7 +242,7 @@ private struct Sidebar: View {
         .padding(.bottom, 10)
         .contextMenu {
             Button("Reveal in Finder") { NSWorkspace.shared.activateFileViewerSelecting([model.url]) }
-            Button("Copy Path") { model.copy(model.url.path, message: "Path copied") }
+            Button("Copy path") { model.copy(model.url.path, message: "Path copied") }
         }
     }
 }

@@ -8,13 +8,13 @@ enum Module: String, CaseIterable, Identifiable, Hashable {
 
     var title: String {
         switch self {
-        case .memory: "Project Memory"
-        case .architecture: "Architecture Map"
-        case .decisions: "Decision Log"
-        case .prompts: "Prompt Vault"
-        case .context: "Context Builder"
-        case .health: "Context Health"
-        case .handoff: "Agent Handoff"
+        case .memory: String(localized: "Project memory")
+        case .architecture: String(localized: "Architecture map")
+        case .decisions: String(localized: "Decision log")
+        case .prompts: String(localized: "Prompt vault")
+        case .context: String(localized: "Context builder")
+        case .health: String(localized: "Context health")
+        case .handoff: String(localized: "Agent handoff")
         }
     }
 
@@ -116,7 +116,7 @@ final class WorkspaceModel {
             document = try engine.document().document
             layout = (try? engine.layout()) ?? .empty
         } catch {
-            show(.error, error.localizedDescription)
+            show(.error, verbatim: error.localizedDescription)
         }
     }
 
@@ -140,24 +140,24 @@ final class WorkspaceModel {
             refresh()
             show(.info, r.changed ? "Reloaded revision \(r.revision)" : "Already up to date")
         } catch {
-            show(.error, error.localizedDescription)
+            show(.error, verbatim: error.localizedDescription)
         }
     }
 
     @discardableResult
-    func perform(_ op: EngramOp, success: String? = nil) -> JSONValue? {
+    func perform(_ op: EngramOp, success: String.LocalizationValue? = nil) -> JSONValue? {
         guard let engine else { return nil }
         do {
             let r = try engine.apply(op)
             refresh()
             if let warnings = r.result["warnings"]?.strings, !warnings.isEmpty {
-                show(.info, warnings.joined(separator: " · "))
+                show(.info, verbatim: warnings.joined(separator: " · "))
             } else if let success {
                 show(.success, success)
             }
             return r.result
         } catch {
-            show(.error, error.localizedDescription)
+            show(.error, verbatim: error.localizedDescription)
             return nil
         }
     }
@@ -170,8 +170,8 @@ final class WorkspaceModel {
         show(.success, "Saved · revision \(revision)")
     }
 
-    func show(_ kind: Banner.Kind, _ message: String) {
-        banner = Banner(kind: kind, message: message)
+    func show(_ kind: Banner.Kind, _ message: String.LocalizationValue) {
+        banner = Banner(kind: kind, message: String(localized: message))
         bannerTask?.cancel()
         bannerTask = Task { [weak self] in
             try? await Task.sleep(for: .seconds(kind == .error ? 6 : 3))
@@ -180,7 +180,11 @@ final class WorkspaceModel {
         }
     }
 
-    func copy(_ text: String, message: String) {
+    func show(_ kind: Banner.Kind, verbatim message: String) {
+        show(kind, "\(message)")
+    }
+
+    func copy(_ text: String, message: String.LocalizationValue) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
         show(.success, message)
@@ -198,7 +202,7 @@ final class WorkspaceModel {
 
     func mcpConfig() -> MCPConfig? {
         do { return try engine?.mcpConfig(serverBinary: mcpBinaryPath) } catch {
-            show(.error, error.localizedDescription)
+            show(.error, verbatim: error.localizedDescription)
             return nil
         }
     }
@@ -219,7 +223,7 @@ final class WorkspaceModel {
             isAuditing = false
             switch result {
             case .success(let r): healthReport = r
-            case .failure(let e): show(.error, e.localizedDescription)
+            case .failure(let e): show(.error, verbatim: e.localizedDescription)
             }
         }
     }

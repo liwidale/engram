@@ -114,49 +114,49 @@ struct CommandPalette: View {
     private var catalog: [Item] {
         let m = model
         var items: [Item] = [
-            Item(id: "cmd.new-memory", title: "New Memory Entry", subtitle: "Add a rule, invariant, convention…", symbol: "plus.circle", group: "Command") { m.request(.newMemory, in: .memory) },
-            Item(id: "cmd.new-adr", title: "Log Decision", subtitle: "Record an ADR with rejected alternatives", symbol: "signpost.right", group: "Command") { m.request(.newDecision, in: .decisions) },
-            Item(id: "cmd.new-prompt", title: "New Prompt", subtitle: "Add a template to the Prompt Vault", symbol: "text.badge.plus", group: "Command") { m.request(.newPrompt, in: .prompts) },
-            Item(id: "cmd.new-node", title: "Add Architecture Node", subtitle: "Module, service, database…", symbol: "plus.square.on.square", group: "Command") { m.request(.newNode, in: .architecture) },
-            Item(id: "cmd.context", title: "Build Context for Task…", subtitle: "Rank memory against a task description", symbol: "square.stack.3d.down.right", group: "Command") { m.request(.focusTask, in: .context) },
-            Item(id: "cmd.audit", title: "Run Health Audit", subtitle: "Scan for broken paths, zombies, contradictions", symbol: "stethoscope", group: "Command") { m.module = .health; m.runAudit() },
-            Item(id: "cmd.mcp", title: "Copy MCP Config", subtitle: m.mcpBinaryPath, symbol: "point.3.filled.connected.trianglepath.dotted", group: "Command") { m.copyMCPConfig() },
-            Item(id: "cmd.mcp-cli", title: "Copy `claude mcp add` Command", subtitle: "Register this file with Claude Code", symbol: "terminal", group: "Command") {
+            Item(id: "cmd.new-memory", title: String(localized: "New memory entry"), subtitle: String(localized: "Add a rule, invariant, convention…"), symbol: "plus.circle", group: String(localized: "Command")) { m.request(.newMemory, in: .memory) },
+            Item(id: "cmd.new-adr", title: String(localized: "Log decision"), subtitle: String(localized: "Record an ADR with rejected alternatives"), symbol: "signpost.right", group: String(localized: "Command")) { m.request(.newDecision, in: .decisions) },
+            Item(id: "cmd.new-prompt", title: String(localized: "New prompt"), subtitle: String(localized: "Add a template to the prompt vault"), symbol: "text.badge.plus", group: String(localized: "Command")) { m.request(.newPrompt, in: .prompts) },
+            Item(id: "cmd.new-node", title: String(localized: "Add architecture node"), subtitle: String(localized: "Module, service, database…"), symbol: "plus.square.on.square", group: String(localized: "Command")) { m.request(.newNode, in: .architecture) },
+            Item(id: "cmd.context", title: String(localized: "Build context for a task…"), subtitle: String(localized: "Rank memory against a task description"), symbol: "square.stack.3d.down.right", group: String(localized: "Command")) { m.request(.focusTask, in: .context) },
+            Item(id: "cmd.audit", title: String(localized: "Run health audit"), subtitle: String(localized: "Scan for broken paths, zombies, contradictions"), symbol: "stethoscope", group: String(localized: "Command")) { m.module = .health; m.runAudit() },
+            Item(id: "cmd.mcp", title: String(localized: "Copy MCP config"), subtitle: m.mcpBinaryPath, symbol: "point.3.filled.connected.trianglepath.dotted", group: String(localized: "Command")) { m.copyMCPConfig() },
+            Item(id: "cmd.mcp-cli", title: String(localized: "Copy `claude mcp add` command"), subtitle: String(localized: "Register this file with Claude Code"), symbol: "terminal", group: String(localized: "Command")) {
                 if let c = m.mcpConfig() { m.copy(c.claudeCodeCommand, message: "Claude Code command copied") }
             },
-            Item(id: "cmd.copy-memory", title: "Copy Project Memory as Markdown", subtitle: "", symbol: "doc.on.doc", group: "Command") {
+            Item(id: "cmd.copy-memory", title: String(localized: "Copy project memory as Markdown"), subtitle: "", symbol: "doc.on.doc", group: String(localized: "Command")) {
                 if let s = try? m.engine?.render(.memory) { m.copy(s, message: "Project memory copied") }
             },
-            Item(id: "cmd.copy-handoff", title: "Copy Agent Handoff (XML)", subtitle: "", symbol: "arrow.triangle.turn.up.right.diamond", group: "Command") {
+            Item(id: "cmd.copy-handoff", title: String(localized: "Copy agent handoff as XML"), subtitle: "", symbol: "arrow.triangle.turn.up.right.diamond", group: String(localized: "Command")) {
                 if let s = try? m.engine?.render(.handoffXML) { m.copy(s, message: "Handoff copied") }
             },
-            Item(id: "cmd.save", title: "Save", subtitle: "Flush pending edits", symbol: "square.and.arrow.down", group: "Command") { m.saveAll() },
-            Item(id: "cmd.reload", title: "Reload from Disk", subtitle: "", symbol: "arrow.clockwise", group: "Command") { m.reloadFromDisk() },
-            Item(id: "cmd.reveal", title: "Reveal .engram in Finder", subtitle: m.url.path, symbol: "folder", group: "Command") {
+            Item(id: "cmd.save", title: String(localized: "Save"), subtitle: String(localized: "Flush pending edits"), symbol: "square.and.arrow.down", group: String(localized: "Command")) { m.saveAll() },
+            Item(id: "cmd.reload", title: String(localized: "Reload from disk"), subtitle: "", symbol: "arrow.clockwise", group: String(localized: "Command")) { m.reloadFromDisk() },
+            Item(id: "cmd.reveal", title: String(localized: "Reveal .engram in Finder"), subtitle: m.url.path, symbol: "folder", group: String(localized: "Command")) {
                 NSWorkspace.shared.activateFileViewerSelecting([m.url])
             },
         ]
         items += Module.allCases.map { mod in
-            Item(id: "go.\(mod.rawValue)", title: "Go to \(mod.title)", subtitle: "", symbol: mod.symbol, group: "⌘\(mod.shortcut.character)") { m.module = mod }
+            Item(id: "go.\(mod.rawValue)", title: String(localized: "Go to \(mod.title)"), subtitle: "", symbol: mod.symbol, group: "⌘" + String(mod.shortcut.character)) { m.module = mod }
         }
         guard let doc = m.document else { return items }
         items += doc.memory.map { e in
-            Item(id: "mem.\(e.key)", title: e.key, subtitle: (e.isActive ? "" : "[SUPERSEDED] ") + e.summary, symbol: e.category.symbol, group: "Memory") {
+            Item(id: "mem.\(e.key)", title: e.key, subtitle: (e.isActive ? "" : "[SUPERSEDED] ") + e.summary, symbol: e.category.symbol, group: String(localized: "Memory")) {
                 m.module = .memory; m.selectedMemory = e.key
             }
         }
         items += doc.decisions.map { d in
-            Item(id: "adr.\(d.id)", title: "\(d.id) · \(d.title)", subtitle: d.status.title, symbol: "signpost.right.and.left", group: "Decision") {
+            Item(id: "adr.\(d.id)", title: String(localized: "\(d.id) · \(d.title)"), subtitle: d.status.title, symbol: "signpost.right.and.left", group: String(localized: "Decision")) {
                 m.module = .decisions; m.selectedDecision = d.id
             }
         }
         items += doc.prompts.map { p in
-            Item(id: "prompt.\(p.name)", title: p.name, subtitle: p.category, symbol: "text.quote", group: "Prompt") {
+            Item(id: "prompt.\(p.name)", title: p.name, subtitle: p.category, symbol: "text.quote", group: String(localized: "Prompt")) {
                 m.module = .prompts; m.selectedPrompt = p.name
             }
         }
         items += doc.architecture.nodes.map { n in
-            Item(id: "node.\(n.id)", title: n.displayName, subtitle: n.kind.title + (n.path.map { " · \($0)" } ?? ""), symbol: n.kind.symbol, group: "Node") {
+            Item(id: "node.\(n.id)", title: n.displayName, subtitle: n.kind.title + (n.path.map { " · \($0)" } ?? ""), symbol: n.kind.symbol, group: String(localized: "Node")) {
                 m.module = .architecture; m.selectedNode = n.id
             }
         }

@@ -134,7 +134,7 @@ struct ContextBuilderView: View {
                         if building { ProgressView().controlSize(.small) }
                         if let b = bundle, b.deadEnds > 0 {
                             Chip(text: "\(b.deadEnds) dead end\(b.deadEnds == 1 ? "" : "s")", color: Theme.color(for: .error), symbol: "xmark.octagon")
-                                .help("Rejected alternatives from ADRs outside the bundle, listed so agents don't re-propose them")
+                                .help("Rejected alternatives from decisions outside the bundle, listed so agents do not propose them again")
                         }
                     }
                     BudgetBar(tokens: bundle?.tokens ?? 0, budget: state.maxTokens)
@@ -144,7 +144,7 @@ struct ContextBuilderView: View {
                 Button {
                     if let xml = bundle?.xml { model.copy(xml, message: "Context copied · \(bundle?.tokens ?? 0) tokens") }
                 } label: {
-                    Label("Copy as XML Context", systemImage: "doc.on.clipboard")
+                    Label("Copy as XML context", systemImage: "doc.on.clipboard")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.accent)
@@ -214,7 +214,7 @@ struct ContextBuilderView: View {
                 building = false
                 switch result {
                 case .success(let b): bundle = b
-                case .failure(let e): model.show(.error, e.localizedDescription)
+                case .failure(let e): model.show(.error, verbatim: e.localizedDescription)
                 }
             }
         }
