@@ -78,6 +78,7 @@ struct WorkspaceView: View {
         case .architecture: ArchitectureView(model: model)
         case .decisions: DecisionsView(model: model)
         case .prompts: PromptVaultView(model: model)
+        case .context: ContextBuilderView(model: model)
         default: EmptyState(symbol: model.module.symbol, title: model.module.title, message: "This module lands in an upcoming build.")
         }
     }
