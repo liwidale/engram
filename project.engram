@@ -1,12 +1,12 @@
 {
   "format": "engram",
   "version": 1,
-  "revision": 31,
+  "revision": 36,
   "project": {
     "name": "Engram",
     "description": "",
     "created_at": "2026-11-23T08:15:17Z",
-    "updated_at": "2026-11-23T13:21:47Z"
+    "updated_at": "2026-11-23T13:30:17Z"
   },
   "memory": [
     {
@@ -45,15 +45,17 @@
       "status": "active",
       "content": [
         "- **Core:** Rust 2021, serde_json, tiktoken-rs (o200k_base), tokio for the stdio server",
-        "- **App:** Swift 5.9 language mode, SwiftUI, macOS 14+",
+        "- **macOS app:** SwiftUI, Swift 5.9 language mode, macOS 14 and later",
+        "- **Windows and Linux app:** eframe/egui 0.37 with the glow backend, rfd for native file dialogs",
         "- **Bridge:** static `libengram_core.a` + cbindgen header, imported as the `CEngramCore` module"
       ],
       "files": [
         "rust-core/Cargo.toml",
-        "EngramApp/Package.swift"
+        "EngramApp/Package.swift",
+        "rust-core/crates/engram-desktop/Cargo.toml"
       ],
       "created_at": "2026-11-23T08:15:17Z",
-      "updated_at": "2026-11-23T08:15:17Z"
+      "updated_at": "2026-11-23T13:30:17Z"
     },
     {
       "key": "git-friendly-format",
@@ -126,6 +128,17 @@
       ],
       "created_at": "2026-11-23T12:50:12Z",
       "updated_at": "2026-11-23T13:21:47Z"
+    },
+    {
+      "key": "localization",
+      "category": "convention",
+      "status": "active",
+      "content": "Every user-facing string is localizable. English is the source language: `String(localized:)` in Swift, `tr()` and `trf()` in the Rust desktop app.",
+      "files": [
+        "rust-core/crates/engram-desktop/src/i18n.rs"
+      ],
+      "created_at": "2026-11-23T13:30:17Z",
+      "updated_at": "2026-11-23T13:30:17Z"
     }
   ],
   "architecture": {
@@ -192,6 +205,17 @@
         "description": "Claude Code, Cursor, Windsurf.",
         "depends_on": [
           "engram-mcp"
+        ]
+      },
+      {
+        "id": "engram-desktop",
+        "type": "ui",
+        "label": "Engram for Windows and Linux",
+        "description": "egui app; polls the file fingerprint for live reload.",
+        "path": "rust-core/crates/engram-desktop",
+        "depends_on": [
+          "engram-core",
+          "engram-file"
         ]
       }
     ]
@@ -291,6 +315,33 @@
       ],
       "created_at": "2026-11-23T12:50:12Z",
       "updated_at": "2026-11-23T12:50:12Z"
+    },
+    {
+      "id": "ADR-0005",
+      "title": "egui for the Windows and Linux app",
+      "status": "active",
+      "context": "SwiftUI only runs on Apple platforms. Windows and Linux need a native desktop app that shares the Rust core and starts fast.",
+      "decision": "Build the Windows and Linux app with eframe/egui on the glow backend, calling engram-core directly without FFI.",
+      "rejected_alternatives": [
+        {
+          "option": "Tauri",
+          "reason": "WebView runtime and a Node toolchain for a tool that should start instantly"
+        },
+        {
+          "option": "Separate WinUI and GTK apps",
+          "reason": "two more UI codebases to keep in sync"
+        },
+        {
+          "option": "Only the MCP server on Windows and Linux",
+          "reason": "users there would lose the editor, graph and audit views"
+        }
+      ],
+      "related": [
+        "engram-desktop",
+        "engram-core"
+      ],
+      "created_at": "2026-11-23T13:30:17Z",
+      "updated_at": "2026-11-23T13:30:17Z"
     }
   ],
   "prompts": [
@@ -331,46 +382,43 @@
     }
   ],
   "handoff": {
-    "objective": "Ship Engram v0.1: Rust core, engram-mcp and the native SwiftUI app.",
+    "objective": "Ship Engram 0.1.0 for macOS, Windows and Linux.",
     "progress": [
       {
-        "description": "Rust core: schema, store, ops, graph, Context Builder, Context Health, C ABI (45 tests green)",
+        "description": "Rust core, engram-mcp and the SwiftUI app with all seven modules (tests green)",
         "files": [
-          "rust-core/crates/engram-core/src"
-        ],
-        "verified": true
-      },
-      {
-        "description": "engram-mcp stdio server, 9 tools, 5 resources, prompts; end-to-end stdio test",
-        "files": [
-          "rust-core/crates/engram-mcp/src/server.rs",
-          "rust-core/crates/engram-mcp/tests/stdio.rs"
-        ],
-        "verified": true
-      },
-      {
-        "description": "SwiftUI app with all seven modules, Cmd+K palette, Copy MCP Config, live reload",
-        "files": [
+          "rust-core/crates/engram-core/src",
           "EngramApp/Sources/Engram"
         ],
         "verified": true
       },
       {
-        "description": "Swift bridge tests (decoding, ops, watcher) and universal release build",
+        "description": "egui app for Windows and Linux; type-checked and linted for both targets, smoke-tested on macOS",
         "files": [
-          "EngramApp/Tests/EngramTests/BridgeTests.swift",
-          "build.sh"
+          "rust-core/crates/engram-desktop/src"
+        ],
+        "verified": true
+      },
+      {
+        "description": "CI, release workflow, Windows installer and Linux packaging",
+        "files": [
+          ".github/workflows/ci.yml",
+          ".github/workflows/release.yml",
+          "packaging/windows/engram.iss",
+          "packaging/linux/install.sh"
         ],
         "verified": true
       }
     ],
     "working_memory": {
       "hypotheses": [],
-      "blockers": [],
-      "notes": "UI was verified by build, tests and runtime checks only; no visual pass was done on screen."
+      "blockers": [
+        "The Windows installer and Linux desktop integration have not run on real Windows and Linux machines yet"
+      ],
+      "notes": "The first CI run on GitHub is the first real build on Windows and Linux."
     },
-    "next_step": "Do a hands-on visual pass of every module in light and dark mode and fix layout issues.",
-    "updated_at": "2026-11-23T12:50:29Z",
+    "next_step": "Push to GitHub, watch the first CI run on all three platforms and fix anything platform-specific.",
+    "updated_at": "2026-11-23T13:30:17Z",
     "updated_by": "seed-script"
   }
 }
