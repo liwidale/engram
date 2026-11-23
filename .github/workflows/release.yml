@@ -1,0 +1,91 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Build universal app
+        run: ./build.sh --test
+      - name: Package
+        run: |
+          mkdir -p dist
+          ditto -c -k --keepParent build/Engram.app "dist/Engram-${GITHUB_REF_NAME#v}-macos-universal.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: dist/*
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build
+        working-directory: rust-core
+        run: cargo build --release -p engram-desktop -p engram-mcp
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          New-Item -ItemType Directory -Force dist | Out-Null
+          $portable = "dist/Engram-$version-windows-x64"
+          New-Item -ItemType Directory -Force $portable | Out-Null
+          Copy-Item rust-core/target/release/engram.exe, rust-core/target/release/engram-mcp.exe, LICENSE $portable
+          Compress-Archive -Path "$portable/*" -DestinationPath "$portable.zip"
+          Remove-Item -Recurse $portable
+          choco install innosetup -y --no-progress
+          $env:ENGRAM_VERSION = $version
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging/windows/engram.iss
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: dist/*
+
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install libraries
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
+      - name: Build
+        working-directory: rust-core
+        run: cargo build --release -p engram-desktop -p engram-mcp
+      - name: Package
+        run: packaging/linux/package.sh "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: dist/*
+
+  publish:
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Release notes
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          awk -v v="$version" '$0 ~ "^## " { if (found) exit; if (index($0, v)) { found=1; next } } found' CHANGELOG.md > notes.md
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "Engram ${GITHUB_REF_NAME#v}" --notes-file notes.md

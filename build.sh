@@ -89,7 +89,7 @@ if [[ $RUN_TESTS -eq 1 ]]; then
   log "Running Swift bridge tests"
   TEST_FLAGS=()
   CLT_DEV=/Library/Developer/CommandLineTools/Library/Developer
-  if [[ -d "$CLT_DEV/Frameworks/Testing.framework" ]]; then
+  if [[ "$(xcode-select -p 2>/dev/null)" == /Library/Developer/CommandLineTools* && -d "$CLT_DEV/Frameworks/Testing.framework" ]]; then
     TEST_FLAGS=(-Xswiftc -F -Xswiftc "$CLT_DEV/Frameworks" -Xlinker -F -Xlinker "$CLT_DEV/Frameworks"
                 -Xlinker -rpath -Xlinker "$CLT_DEV/Frameworks" -Xlinker -rpath -Xlinker "$CLT_DEV/usr/lib")
   fi

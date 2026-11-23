@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Engram
+GenericName=Project memory
+Comment=Project memory for you and your AI agents
+Exec=engram %F
+Icon=com.liwidale.engram
+Terminal=false
+Categories=Development;
+Keywords=memory;mcp;agents;architecture;decisions;
+MimeType=application/vnd.engram+json;
+StartupWMClass=com.liwidale.engram

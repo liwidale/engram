@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/vnd.engram+json">
+    <comment>Engram project memory</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.engram"/>
+    <icon name="com.liwidale.engram"/>
+  </mime-type>
+</mime-info>
