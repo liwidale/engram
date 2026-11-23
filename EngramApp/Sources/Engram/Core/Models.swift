@@ -242,6 +242,12 @@ struct ProgressItem: Decodable, Hashable {
     var description: String
     @Default<EmptyStrings> var files: [String]
     @Default<True> var verified: Bool
+
+    init(description: String, files: [String], verified: Bool) {
+        self.description = description
+        self.files = files
+        self.verified = verified
+    }
 }
 
 struct WorkingMemory: Decodable, Hashable {
