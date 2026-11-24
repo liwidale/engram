@@ -46,11 +46,6 @@ final class EngramEngine: @unchecked Sendable {
 
     func reload() throws -> ReloadResult { try call { engram_reload(handle) } }
 
-    struct ApplyResult: Decodable {
-        var revision: UInt64
-        var result: JSONValue
-    }
-
     @discardableResult
     func apply(_ op: EngramOp) throws -> ApplyResult {
         let json = try op.json()
@@ -73,7 +68,10 @@ final class EngramEngine: @unchecked Sendable {
 
     func layout() throws -> GraphLayout { try call { engram_layout(handle) } }
 
-    enum RenderTarget: String { case memory, decisions, handoff, handoffXML = "handoff_xml", architecture, prompts }
+    enum RenderTarget: String {
+        case memory, decisions, handoff, handoffXML = "handoff_xml", architecture, prompts, mermaid
+        case agentsPointer = "agents_pointer"
+    }
 
     func render(_ target: RenderTarget) throws -> String {
         try call { target.rawValue.withCString { engram_render(handle, $0) } }
@@ -84,8 +82,33 @@ final class EngramEngine: @unchecked Sendable {
         return try call { name.withCString { n in vars.withCString { engram_render_prompt(handle, n, $0) } } }
     }
 
-    func mcpConfig(serverBinary: String) throws -> MCPConfig {
-        try call { serverBinary.withCString { engram_mcp_config(handle, $0) } }
+    func replace(documentJSON: String, expectedRevision: UInt64?) throws -> ReplaceResult {
+        let expected = expectedRevision.map { Int64($0) } ?? -1
+        return try call { documentJSON.withCString { engram_replace(handle, $0, expected) } }
+    }
+
+    func undo() throws -> HistoryStepResult { try call { engram_undo(handle) } }
+
+    func redo() throws -> HistoryStepResult { try call { engram_redo(handle) } }
+
+    func history() throws -> HistoryState { try call { engram_history(handle) } }
+
+    func clientConfigs(serverBinary: String) throws -> [ClientConfig] {
+        try call { serverBinary.withCString { engram_client_configs(handle, $0) } }
+    }
+
+    func writeClientConfig(_ client: MCPClient, serverBinary: String) throws -> WriteOutcome {
+        try call { client.rawValue.withCString { c in serverBinary.withCString { engram_write_client_config(handle, c, $0) } } }
+    }
+
+    func importInstructions(from url: URL) throws -> [MemoryCandidate] {
+        try call { url.path.withCString { engram_import(handle, $0) } }
+    }
+
+    func bootstrap() throws -> Bootstrap { try call { engram_bootstrap(handle) } }
+
+    func repoFiles(matching query: String, limit: Int = 12) throws -> [String] {
+        try call { query.withCString { engram_repo_files(handle, $0, UInt32(limit)) } }
     }
 
     static func countTokens(_ text: String) -> Int {
@@ -134,6 +157,7 @@ struct ContextRequest: Equatable {
     var promptVars: [String: String] = [:]
     var includeHandoff = true
     var autoRank = true
+    var markdown = false
 
     func json() throws -> String {
         var payload: [String: Any] = [
@@ -144,6 +168,7 @@ struct ContextRequest: Equatable {
             "prompt_vars": promptVars,
             "include_handoff": includeHandoff,
             "auto_rank": autoRank,
+            "format": markdown ? "markdown" : "xml",
         ]
         if let prompt { payload["prompt"] = prompt }
         return String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self)

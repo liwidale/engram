@@ -12,13 +12,12 @@ struct HandoffView: View {
     }
 }
 
-private struct HandoffDraft: Equatable {
-    struct Row: Equatable, Identifiable {
+struct HandoffDraft: Equatable {
+    struct Row: Identifiable {
         var id = UUID()
         var description: String
-        var files: String
+        var files: [String]
         var verified: Bool
-        static func == (a: Row, b: Row) -> Bool { a.description == b.description && a.files == b.files && a.verified == b.verified }
     }
 
     var objective: String
@@ -30,7 +29,7 @@ private struct HandoffDraft: Equatable {
 
     init(_ h: Handoff) {
         objective = h.objective
-        progress = h.progress.map { Row(description: $0.description, files: $0.files.joined(separator: ", "), verified: $0.verified) }
+        progress = h.progress.map { Row(description: $0.description, files: $0.files, verified: $0.verified) }
         hypotheses = h.workingMemory.hypotheses
         blockers = h.workingMemory.blockers
         notes = h.workingMemory.notes
@@ -40,64 +39,60 @@ private struct HandoffDraft: Equatable {
     var items: [ProgressItem] {
         progress
             .filter { !$0.description.trimmingCharacters(in: .whitespaces).isEmpty }
-            .map { r in
-                ProgressItem(
-                    description: r.description.trimmingCharacters(in: .whitespaces),
-                    files: r.files.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty },
-                    verified: r.verified
-                )
-            }
+            .map { ProgressItem(description: $0.description.trimmingCharacters(in: .whitespaces), files: $0.files, verified: $0.verified) }
     }
 
     var isValid: Bool {
         !objective.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !nextStep.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    static func == (a: HandoffDraft, b: HandoffDraft) -> Bool {
+        a.objective == b.objective && a.items == b.items && a.hypotheses == b.hypotheses && a.blockers == b.blockers
+            && a.notes == b.notes && a.nextStep == b.nextStep
     }
 }
 
 private struct HandoffEditor: View {
     var model: WorkspaceModel
     var handoff: Handoff
-    @State private var draft: HandoffDraft
-    @State private var baseline: HandoffDraft
-    @State private var saveDebounce = Debouncer()
+    @State private var draft: EditorDraft<HandoffDraft>
 
     init(model: WorkspaceModel, handoff: Handoff) {
         self.model = model
         self.handoff = handoff
-        _draft = State(initialValue: HandoffDraft(handoff))
-        _baseline = State(initialValue: HandoffDraft(handoff))
+        _draft = State(initialValue: EditorDraft(HandoffDraft(handoff)))
     }
-
-    private var dirty: Bool { draft != baseline }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if draft.conflict != nil {
+                ConflictBar(onLoad: { draft.loadExternal() }, onKeep: {
+                    draft.keepMine()
+                    _ = commit()
+                })
+            }
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     Card("Active objective") {
-                        TextField("What is the agent trying to achieve?", text: $draft.objective, axis: .vertical)
+                        TextField("What is the agent trying to achieve?", text: $draft.value.objective, axis: .vertical)
                             .textFieldStyle(.plain)
                             .font(.title3.weight(.medium))
                             .lineLimit(1...4)
                     }
                     progressCard
                     HStack(alignment: .top, spacing: 14) {
-                        Card("Hypotheses") {
-                            LineListEditor(items: $draft.hypotheses, placeholder: "One per line")
-                        }
-                        Card("Blockers") {
-                            LineListEditor(items: $draft.blockers, placeholder: "One per line")
-                        }
+                        Card("Hypotheses") { LineListEditor(items: $draft.value.hypotheses, placeholder: "One per line") }
+                        Card("Blockers") { LineListEditor(items: $draft.value.blockers, placeholder: "One per line") }
                     }
                     Card("Working notes") {
-                        CodeEditor(text: $draft.notes, placeholder: "Scratchpad that should survive the context window", minHeight: 80, font: .body)
+                        CodeEditor(text: $draft.value.notes, placeholder: "Notes that should outlive the context window", minHeight: 80, font: .body)
                     }
                     Card("Next atomic step") {
                         HStack(alignment: .firstTextBaseline, spacing: 10) {
                             Image(systemName: "arrow.right.circle.fill").foregroundStyle(Theme.accent).font(.title3)
-                            TextField("The single next action, small enough to verify", text: $draft.nextStep, axis: .vertical)
+                            TextField("The single next action, small enough to verify", text: $draft.value.nextStep, axis: .vertical)
                                 .textFieldStyle(.plain)
                                 .font(.title3)
                                 .lineLimit(1...3)
@@ -109,17 +104,12 @@ private struct HandoffEditor: View {
         }
         .onAppear { model.registerCommit("handoff") { commit() } }
         .onDisappear {
-            commit()
+            _ = commit()
             model.unregisterCommit("handoff")
         }
-        .onChange(of: handoff) { _, new in
-            if !dirty {
-                draft = HandoffDraft(new)
-                baseline = draft
-            }
-        }
-        .onChange(of: draft) {
-            if dirty && draft.isValid { saveDebounce.run(after: .milliseconds(1200)) { commit() } }
+        .onChange(of: handoff) { _, new in draft.sync(external: HandoffDraft(new)) }
+        .onChange(of: draft.value) {
+            if draft.value.isValid { draft.scheduleSave { _ = commit() } }
         }
     }
 
@@ -127,16 +117,18 @@ private struct HandoffEditor: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text("Agent handoff").font(.title3.weight(.semibold))
-                Text(handoff.updatedAt.map { "Updated \(EngramDate.relativeString($0))" + (handoff.updatedBy.map { " by \($0)" } ?? "") }
-                    ?? "Agents overwrite this with update_handoff before they stop.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                Text(handoff.updatedAt.map { at in
+                    handoff.updatedBy.map { String(localized: "Updated \(EngramDate.relativeString(at)) by \($0)") }
+                        ?? String(localized: "Updated \(EngramDate.relativeString(at))")
+                } ?? String(localized: "A checkpoint agents overwrite with update_handoff before they stop."))
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
             Spacer()
-            if dirty {
-                Text(draft.isValid ? String(localized: "Edited") : String(localized: "Objective and next step are required"))
-                    .font(.caption)
-                    .foregroundStyle(draft.isValid ? Theme.accent : Theme.color(for: .warning))
+            if draft.dirty && !draft.value.isValid {
+                Text("Add an objective and a next step to save").font(.caption).foregroundStyle(Theme.color(for: .warning))
+            } else {
+                SaveStatus(model: model, dirty: draft.dirty)
             }
             Menu {
                 Button("Copy as XML") { copy(.handoffXML) }
@@ -147,8 +139,6 @@ private struct HandoffEditor: View {
                 copy(.handoffXML)
             }
             .fixedSize()
-            Button("Save") { commit() }
-                .disabled(!dirty || !draft.isValid)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
@@ -156,31 +146,29 @@ private struct HandoffEditor: View {
 
     private var progressCard: some View {
         Card("Verified progress", trailing: AnyView(
-            Button { draft.progress.append(.init(description: "", files: "", verified: true)) } label: { Label("Add", systemImage: "plus") }
+            Button { draft.value.progress.append(.init(description: "", files: [], verified: true)) } label: { Label("Add", systemImage: "plus") }
                 .buttonStyle(.borderless)
                 .font(.caption)
         )) {
-            if draft.progress.isEmpty {
-                Text("Completed, checkable work with the files it touched.").font(.callout).foregroundStyle(.tertiary)
+            if draft.value.progress.isEmpty {
+                Text("Finished, checkable work with the files it touched.").font(.callout).foregroundStyle(.tertiary)
             }
-            ForEach($draft.progress) { $row in
+            ForEach($draft.value.progress) { $row in
                 HStack(alignment: .top, spacing: 8) {
                     Toggle("", isOn: $row.verified)
                         .toggleStyle(.checkbox)
                         .labelsHidden()
                         .help("Verified")
-                    VStack(alignment: .leading, spacing: 4) {
+                    VStack(alignment: .leading, spacing: 6) {
                         TextField("What was done", text: $row.description, axis: .vertical)
                             .textFieldStyle(.plain)
                             .lineLimit(1...3)
-                        TextField("files, comma separated", text: $row.files)
-                            .textFieldStyle(.plain)
-                            .font(.caption.monospaced())
-                            .foregroundStyle(.secondary)
+                        FileListEditor(model: model, files: $row.files)
                     }
-                    Button { draft.progress.removeAll { $0.id == row.id } } label: { Image(systemName: "minus.circle") }
+                    Button { draft.value.progress.removeAll { $0.id == row.id } } label: { Image(systemName: "minus.circle") }
                         .buttonStyle(.borderless)
                         .foregroundStyle(.tertiary)
+                        .help("Remove")
                 }
                 .padding(8)
                 .background(Theme.subtleFill, in: RoundedRectangle(cornerRadius: 7))
@@ -189,7 +177,7 @@ private struct HandoffEditor: View {
     }
 
     private func copy(_ target: EngramEngine.RenderTarget) {
-        commit()
+        _ = commit()
         do {
             if let s = try model.engine?.render(target) { model.copy(s, message: "Handoff copied") }
         } catch {
@@ -197,13 +185,15 @@ private struct HandoffEditor: View {
         }
     }
 
-    private func commit() {
-        guard dirty, draft.isValid else { return }
-        let d = draft
-        let op = EngramOp.updateHandoff(
+    @discardableResult
+    private func commit() -> Bool {
+        guard draft.dirty, draft.value.isValid, draft.conflict == nil else { return false }
+        let d = draft.value
+        draft.markSaved(d)
+        model.perform(.updateHandoff(
             objective: d.objective, progress: d.items, hypotheses: d.hypotheses, blockers: d.blockers,
-            notes: d.notes, nextStep: d.nextStep, updatedBy: "Engram (\(NSUserName()))"
-        )
-        if model.perform(op) != nil { baseline = d }
+            notes: d.notes, nextStep: d.nextStep, updatedBy: Pref.handoffAuthorLabel
+        ))
+        return true
     }
 }

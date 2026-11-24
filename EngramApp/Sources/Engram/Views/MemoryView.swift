@@ -9,26 +9,26 @@ struct MemoryView: View {
 
     var body: some View {
         HSplitView {
-            list
-                .frame(minWidth: 260, idealWidth: 300, maxWidth: 420)
+            list.frame(minWidth: 260, idealWidth: 300, maxWidth: 420)
             Group {
                 if let key = model.selectedMemory, let entry = model.document?.memoryEntry(key) {
                     MemoryEditor(model: model, entry: entry) { composer = .supersede(entry) }
                         .id(entry.key)
+                } else if model.document?.isEmpty == true {
+                    OnboardingCard(model: model) { composer = .new }
                 } else {
                     EmptyState(
                         symbol: "brain",
                         title: "Project memory",
-                        message: "Rules, tech stack, architecture invariants and conventions for this codebase appear here. Agents read them through engram://memory. Add your first entry to start.",
+                        message: "The rules, stack and conventions an agent should never forget. Select an entry, or add one.",
+                        note: "Agents read this through engram://memory.",
                         action: ("New entry", { composer = .new })
                     )
                 }
             }
-            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 380, maxWidth: .infinity, maxHeight: .infinity)
         }
-        .sheet(item: $composer) { seed in
-            MemoryComposer(model: model, seed: seed)
-        }
+        .sheet(item: $composer) { MemoryComposer(model: model, seed: $0) }
         .onChange(of: model.intent) { _, intent in
             if intent == .newMemory { composer = .new; model.intent = nil }
         }
@@ -42,14 +42,15 @@ struct MemoryView: View {
         return (model.document?.memory ?? []).filter { e in
             (showSuperseded || e.isActive)
                 && (categoryFilter == nil || e.category == categoryFilter)
-                && (q.isEmpty || e.key.lowercased().contains(q) || e.content.lowercased().contains(q) || e.tags.contains { $0.lowercased().contains(q) })
+                && (q.isEmpty || e.key.lowercased().contains(q) || e.content.lowercased().contains(q)
+                    || e.tags.contains { $0.lowercased().contains(q) })
         }
     }
 
     private var list: some View {
         VStack(spacing: 0) {
             HStack(spacing: 6) {
-                SearchField(text: $search, prompt: "Filter memory")
+                SearchField(text: $search, prompt: "Filter by key, text or tag")
                 Menu {
                     Picker("Category", selection: $categoryFilter) {
                         Text("All categories").tag(MemoryCategory?.none)
@@ -62,6 +63,7 @@ struct MemoryView: View {
                 }
                 .menuStyle(.borderlessButton)
                 .fixedSize()
+                .help("Filter")
                 Button { composer = .new } label: { Image(systemName: "plus") }
                     .buttonStyle(.borderless)
                     .help("New memory entry (⇧⌘N)")
@@ -71,7 +73,8 @@ struct MemoryView: View {
             List(selection: $model.selectedMemory) {
                 let entries = filtered
                 ForEach(MemoryCategory.allCases) { cat in
-                    let group = entries.filter { $0.category == cat }.sorted { ($0.isActive ? 0 : 1, $0.key) < ($1.isActive ? 0 : 1, $1.key) }
+                    let group = entries.filter { $0.category == cat }
+                        .sorted { ($0.isActive ? 0 : 1, $0.pinned ? 0 : 1, $0.key) < ($1.isActive ? 0 : 1, $1.pinned ? 0 : 1, $1.key) }
                     if !group.isEmpty {
                         Section {
                             ForEach(group) { e in
@@ -85,9 +88,8 @@ struct MemoryView: View {
             }
             .listStyle(.inset)
             .overlay {
-                if filtered.isEmpty {
-                    Text(model.document?.memory.isEmpty == true ? String(localized: "No entries yet") : String(localized: "No matches"))
-                        .foregroundStyle(.tertiary)
+                if filtered.isEmpty, model.document?.memory.isEmpty == false {
+                    Text("No entries match").foregroundStyle(.tertiary)
                 }
             }
         }
@@ -95,21 +97,22 @@ struct MemoryView: View {
 
     @ViewBuilder
     private func menu(for e: MemoryEntry) -> some View {
-        Button("Copy as Markdown") { model.copy("### \(e.key)\n\n\(e.content)", message: "Copied '\(e.key)'") }
+        Button("Copy as Markdown") { model.copy("### \(e.key)\n\n\(e.content)", message: "Copied \(e.key)") }
         Button(e.pinned ? "Unpin" : "Pin to every context") {
             model.perform(.upsertMemory(key: e.key, category: nil, content: e.content, pinned: !e.pinned))
         }
         Divider()
         if e.isActive {
             Button("Supersede with new entry…") { composer = .supersede(e) }
-            Button("Mark superseded") { model.perform(.setMemoryStatus(key: e.key, .superseded)) }
+            Button("Retire as superseded") { model.perform(.setMemoryStatus(key: e.key, .superseded)) }
         } else {
             Button("Restore as active") { model.perform(.setMemoryStatus(key: e.key, .active)) }
         }
         Divider()
-        Button("Delete", role: .destructive) {
-            if model.selectedMemory == e.key { model.selectedMemory = nil }
-            model.perform(.deleteMemory(key: e.key), success: "Deleted '\(e.key)'")
+        Button("Delete…", role: .destructive) {
+            model.delete(.deleteMemory(key: e.key), title: e.key) {
+                if model.selectedMemory == e.key { model.selectedMemory = nil }
+            }
         }
     }
 }
@@ -120,69 +123,101 @@ private struct MemoryRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             HStack(spacing: 6) {
-                Text(entry.key)
+                Text(verbatim: entry.key)
                     .font(.system(.callout, design: .monospaced).weight(.medium))
                     .strikethrough(!entry.isActive)
                     .foregroundStyle(entry.isActive ? .primary : .secondary)
                     .lineLimit(1)
-                if entry.pinned { Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.accent) }
+                if entry.pinned {
+                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.accent).help("Pinned to every context")
+                }
                 Spacer(minLength: 0)
-                if !entry.isActive { Chip(text: "SUPERSEDED", color: .orange) }
+                if !entry.isActive { Chip(text: "Superseded", color: Theme.superseded) }
             }
-            Text(entry.summary)
+            Text(verbatim: entry.summary)
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .lineLimit(2)
+            if !entry.tags.isEmpty {
+                Text(verbatim: entry.tags.map { "#\($0)" }.joined(separator: " "))
+                    .font(.caption2)
+                    .foregroundStyle(.tertiary)
+                    .lineLimit(1)
+            }
         }
         .padding(.vertical, 3)
         .opacity(entry.isActive ? 1 : 0.7)
     }
 }
 
+struct MemoryDraft: Equatable {
+    var content: String
+    var tags: String
+    var files: [String]
+
+    init(_ e: MemoryEntry) {
+        content = e.content
+        tags = e.tags.joined(separator: ", ")
+        files = e.files
+    }
+
+    var tagList: [String] {
+        tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    }
+}
+
 private struct MemoryEditor: View {
-    enum Mode: String, CaseIterable { case edit = "Edit", split = "Split", preview = "Preview" }
+    enum Mode: String, CaseIterable { case edit, split, preview }
 
     var model: WorkspaceModel
     var entry: MemoryEntry
     var onSupersede: () -> Void
 
-    @AppStorage("memory.editorMode") private var mode: Mode = .split
-    @State private var content = ""
-    @State private var tags = ""
-    @State private var files: [String] = []
-    @State private var keyDraft = ""
-    @State private var baseline: (content: String, tags: [String], files: [String]) = ("", [], [])
+    @AppStorage(Pref.memoryMode) private var modeRaw = "edit"
+    @State private var draft: EditorDraft<MemoryDraft>
+    @State private var keyDraft: String
     @State private var tokens = 0
-    @State private var debounce = Debouncer()
-    @State private var saveDebounce = Debouncer()
+    @State private var tokenDebounce = Debouncer()
+    @State private var showDetails: Bool
 
-    private var parsedTags: [String] {
-        tags.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+    init(model: WorkspaceModel, entry: MemoryEntry, onSupersede: @escaping () -> Void) {
+        self.model = model
+        self.entry = entry
+        self.onSupersede = onSupersede
+        _draft = State(initialValue: EditorDraft(MemoryDraft(entry)))
+        _keyDraft = State(initialValue: entry.key)
+        _showDetails = State(initialValue: !entry.tags.isEmpty || !entry.files.isEmpty)
     }
-    private var dirty: Bool { content != baseline.content || parsedTags != baseline.tags || files != baseline.files }
+
+    private var mode: Mode { Mode(rawValue: modeRaw) ?? .edit }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if draft.conflict != nil {
+                ConflictBar(onLoad: { draft.loadExternal() }, onKeep: {
+                    draft.keepMine()
+                    _ = commit()
+                })
+            }
             Divider()
-            editorBody
+            GeometryReader { geo in editorBody(width: geo.size.width) }
             Divider()
             footer
         }
         .onAppear {
-            load(entry)
+            tokens = EngramEngine.countTokens(entry.content)
             model.registerCommit("memory") { commit() }
         }
         .onDisappear {
-            commit()
+            _ = commit()
             model.unregisterCommit("memory")
         }
-        .onChange(of: entry) { _, new in
-            if !dirty { load(new) }
+        .onChange(of: entry) { _, new in draft.sync(external: MemoryDraft(new)) }
+        .onChange(of: draft.value) { _, value in
+            tokenDebounce.run(after: .milliseconds(300)) { tokens = EngramEngine.countTokens(value.content) }
+            draft.scheduleSave { _ = commit() }
         }
-        .onChange(of: content) { _, _ in scheduleSave() }
-        .onChange(of: tags) { _, _ in scheduleSave() }
-        .onChange(of: files) { _, _ in scheduleSave() }
     }
 
     private var header: some View {
@@ -198,39 +233,43 @@ private struct MemoryEditor: View {
             if !entry.isActive { SupersededBadge(by: entry.supersededBy) }
             Spacer()
             Picker("Category", selection: Binding(get: { entry.category }, set: { c in
-                commit()
-                model.perform(.upsertMemory(key: entry.key, category: c, content: content))
+                _ = commit()
+                model.perform(.upsertMemory(key: entry.key, category: c, content: draft.value.content))
             })) {
                 ForEach(MemoryCategory.allCases) { Label($0.singular, systemImage: $0.symbol).tag($0) }
             }
             .labelsHidden()
             .fixedSize()
             Toggle(isOn: Binding(get: { entry.pinned }, set: { p in
-                commit()
-                model.perform(.upsertMemory(key: entry.key, category: nil, content: content, pinned: p))
+                _ = commit()
+                model.perform(.upsertMemory(key: entry.key, category: nil, content: draft.value.content, pinned: p))
             })) {
                 Image(systemName: entry.pinned ? "pin.fill" : "pin")
             }
             .toggleStyle(.button)
             .help("Pinned entries are included in every built context")
-            Picker("Mode", selection: $mode) {
-                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue) }
+            Picker("Mode", selection: $modeRaw) {
+                Text("Edit").tag(Mode.edit.rawValue)
+                Text("Split").tag(Mode.split.rawValue)
+                Text("Preview").tag(Mode.preview.rawValue)
             }
             .pickerStyle(.segmented)
             .labelsHidden()
             .fixedSize()
             Menu {
-                Button("Copy as Markdown") { model.copy("### \(entry.key)\n\n\(content)", message: "Copied '\(entry.key)'") }
+                Button("Copy as Markdown") { model.copy("### \(entry.key)\n\n\(draft.value.content)", message: "Copied \(entry.key)") }
                 if entry.isActive {
                     Button("Supersede with new entry…", action: onSupersede)
-                    Button("Mark superseded") { commit(); model.perform(.setMemoryStatus(key: entry.key, .superseded)) }
+                    Button("Retire as superseded") {
+                        _ = commit()
+                        model.perform(.setMemoryStatus(key: entry.key, .superseded))
+                    }
                 } else {
                     Button("Restore as active") { model.perform(.setMemoryStatus(key: entry.key, .active)) }
                 }
                 Divider()
-                Button("Delete", role: .destructive) {
-                    model.selectedMemory = nil
-                    model.perform(.deleteMemory(key: entry.key), success: "Deleted '\(entry.key)'")
+                Button("Delete…", role: .destructive) {
+                    model.delete(.deleteMemory(key: entry.key), title: entry.key) { model.selectedMemory = nil }
                 }
             } label: {
                 Image(systemName: "ellipsis.circle")
@@ -243,56 +282,57 @@ private struct MemoryEditor: View {
     }
 
     @ViewBuilder
-    private var editorBody: some View {
-        let editor = CodeEditor(text: $content, placeholder: "Markdown. Start with [SUPERSEDED] to retire this entry.", minHeight: 200)
+    private func editorBody(width: CGFloat) -> some View {
+        let editor = CodeEditor(text: $draft.value.content, placeholder: "Write in Markdown", minHeight: 160)
             .padding(12)
-        let preview = ScrollView {
-            MarkdownView(text: content).padding(18)
-        }
-        .background(Theme.surface)
+            .background(Theme.surface)
+        let preview = ScrollView { MarkdownView(text: draft.value.content).padding(18) }
+            .background(Theme.surface)
         switch mode {
-        case .edit: editor.background(Theme.surface)
+        case .edit: editor
         case .preview: preview
         case .split:
-            HSplitView {
-                editor.background(Theme.surface).frame(minWidth: 240)
-                preview.frame(minWidth: 240)
+            if width < 520 {
+                editor
+            } else {
+                HSplitView {
+                    editor.frame(minWidth: 240)
+                    preview.frame(minWidth: 240)
+                }
             }
         }
     }
 
     private var footer: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    SectionLabel("Tags")
-                    TextField("comma, separated", text: $tags)
-                        .textFieldStyle(.roundedBorder)
+            DisclosureGroup(isExpanded: $showDetails) {
+                HStack(alignment: .top, spacing: 16) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        SectionLabel("Tags")
+                        TextField("comma, separated", text: $draft.value.tags).textFieldStyle(.roundedBorder)
+                    }
+                    .frame(maxWidth: 240)
+                    VStack(alignment: .leading, spacing: 4) {
+                        SectionLabel("Linked files", trailing: String(localized: "checked by Context health"))
+                        FileListEditor(model: model, files: $draft.value.files)
+                    }
                 }
-                .frame(maxWidth: 260)
-                VStack(alignment: .leading, spacing: 4) {
-                    SectionLabel("Linked files", trailing: "one path per line, relative to repo")
-                    LineListEditor(items: $files, placeholder: "src/payments/charge.ts")
-                        .padding(4)
-                        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6))
-                        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.hairline))
-                        .frame(height: 58)
-                }
+                .padding(.top, 6)
+            } label: {
+                Text(detailsSummary).font(.caption).foregroundStyle(.secondary)
             }
             HStack(spacing: 12) {
                 if let s = entry.supersedes {
-                    Button { model.selectedMemory = s } label: { Label("supersedes \(s)", systemImage: "arrow.uturn.left") }
+                    Button { model.selectedMemory = s } label: { Label("Supersedes \(s)", systemImage: "arrow.uturn.left") }
                         .buttonStyle(.link)
                 }
                 if let by = entry.supersededBy {
-                    Button { model.selectedMemory = by } label: { Label("replaced by \(by)", systemImage: "arrow.uturn.right") }
+                    Button { model.selectedMemory = by } label: { Label("Replaced by \(by)", systemImage: "arrow.uturn.right") }
                         .buttonStyle(.link)
                 }
                 Spacer()
                 TokenBadge(tokens: tokens)
-                Text(dirty ? String(localized: "Edited") : String(localized: "Saved \(EngramDate.relativeString(entry.updatedAt))"))
-                    .font(.caption)
-                    .foregroundStyle(dirty ? Theme.accent : Color.secondary)
+                SaveStatus(model: model, dirty: draft.dirty)
             }
             .font(.caption)
         }
@@ -300,37 +340,27 @@ private struct MemoryEditor: View {
         .padding(.vertical, 10)
     }
 
-    private func load(_ e: MemoryEntry) {
-        content = e.content
-        tags = e.tags.joined(separator: ", ")
-        files = e.files
-        keyDraft = e.key
-        baseline = (e.content, e.tags, e.files)
-        tokens = EngramEngine.countTokens(e.content)
+    private var detailsSummary: String {
+        let tags = draft.value.tagList.count, files = draft.value.files.count
+        if tags == 0, files == 0 { return String(localized: "Tags and linked files") }
+        return String(localized: "\(tags) tags · \(files) linked files")
     }
 
-    private func scheduleSave() {
-        debounce.run(after: .milliseconds(200)) { tokens = EngramEngine.countTokens(content) }
-        guard dirty else { return }
-        saveDebounce.run(after: .milliseconds(900)) { commit() }
-    }
-
-    private func commit() {
-        guard dirty else { return }
-        let snapshot = (content, parsedTags, files)
-        if model.perform(.upsertMemory(key: entry.key, category: nil, content: snapshot.0, tags: snapshot.1, files: snapshot.2)) != nil {
-            baseline = snapshot
-        }
+    @discardableResult
+    private func commit() -> Bool {
+        guard draft.dirty, draft.conflict == nil else { return false }
+        let saved = draft.value
+        draft.markSaved(saved)
+        model.perform(.upsertMemory(key: entry.key, category: nil, content: saved.content, tags: saved.tagList, files: saved.files))
+        return true
     }
 
     private func rename() {
         let new = keyDraft.trimmingCharacters(in: .whitespaces)
         guard !new.isEmpty, new != entry.key else { keyDraft = entry.key; return }
-        commit()
-        if model.perform(.renameMemory(key: entry.key, to: new), success: "Renamed to '\(new)'") != nil {
-            model.selectedMemory = new
-        } else {
-            keyDraft = entry.key
+        _ = commit()
+        model.perform(.renameMemory(key: entry.key, to: new), success: "Renamed to \(new)") { result in
+            if result != nil { model.selectedMemory = new } else { keyDraft = entry.key }
         }
     }
 }
@@ -355,20 +385,22 @@ struct MemoryComposer: View {
     @State private var content = ""
     @State private var supersedes: String?
     @State private var pinned = false
+    @State private var tokens = 0
+    @State private var debounce = Debouncer()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            Text(supersedes == nil ? String(localized: "New memory entry") : String(localized: "Supersede '\(supersedes!)'"))
+            Text(supersedes.map { String(localized: "Supersede \($0)") } ?? String(localized: "New memory entry"))
                 .font(.title2.weight(.semibold))
             if supersedes != nil {
-                Text("The old entry is tagged [SUPERSEDED], linked to this one and left out of future agent context.")
+                Text("The old entry is marked superseded, linked to this one and left out of future agent context.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 GridRow {
                     Text("Key").foregroundStyle(.secondary)
-                    TextField("e.g. db-engine", text: $key).textFieldStyle(.roundedBorder).font(Theme.mono)
+                    TextField("db-engine", text: $key).textFieldStyle(.roundedBorder).font(.body.monospaced())
                 }
                 GridRow {
                     Text("Category").foregroundStyle(.secondary)
@@ -383,21 +415,24 @@ struct MemoryComposer: View {
                     Toggle("Include in every built context", isOn: $pinned)
                 }
             }
-            CodeEditor(text: $content, placeholder: "Markdown content", minHeight: 180)
+            CodeEditor(text: $content, placeholder: "Write in Markdown", minHeight: 180)
                 .padding(6)
                 .background(Theme.surface, in: RoundedRectangle(cornerRadius: 8))
                 .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(Theme.hairline))
             HStack {
-                TokenBadge(tokens: EngramEngine.countTokens(content))
+                TokenBadge(tokens: tokens)
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button(supersedes == nil ? "Create" : "Supersede") { create() }
+                Button(supersedes == nil ? "Create" : "Supersede", action: create)
                     .keyboardShortcut(.defaultAction)
                     .disabled(key.trimmingCharacters(in: .whitespaces).isEmpty || content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(22)
         .frame(width: 560)
+        .onChange(of: content) { _, value in
+            debounce.run(after: .milliseconds(300)) { tokens = EngramEngine.countTokens(value) }
+        }
         .onAppear {
             if case .supersede(let e) = seed {
                 supersedes = e.key
@@ -420,13 +455,82 @@ struct MemoryComposer: View {
     private func create() {
         let k = key.trimmingCharacters(in: .whitespaces)
         if model.document?.memoryEntry(k) != nil, supersedes == nil {
-            model.show(.error, "An entry named '\(k)' already exists")
+            model.show(.error, "An entry named \(k) already exists. Choose another key.")
             return
         }
         let op = EngramOp.upsertMemory(key: k, category: category, content: content, supersedesKey: supersedes, pinned: pinned)
-        if model.perform(op, success: supersedes.map { "'\(k)' supersedes '\($0)'" } ?? "Created '\(k)'") != nil {
+        let message: String.LocalizationValue = supersedes.map { "\(k) supersedes \($0)" } ?? "Created \(k)"
+        model.perform(op, success: message) { result in
+            guard result != nil else { return }
             model.selectedMemory = k
             dismiss()
+        }
+    }
+}
+
+struct OnboardingCard: View {
+    var model: WorkspaceModel
+    var startBlank: () -> Void
+    @State private var review: ImportReview?
+    @State private var scanning = false
+
+    var body: some View {
+        VStack(spacing: 18) {
+            VStack(spacing: 6) {
+                Text("Start this project's memory").font(.title2.weight(.semibold))
+                Text("Engram can read your build files and agent instructions and draft the first entries. You review everything before it is added.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 440)
+            }
+            HStack(spacing: 14) {
+                choice(symbol: "wand.and.stars", title: "Scan repository", detail: "Draft the stack, commands, rules and starter prompts.", primary: true, action: scan)
+                choice(symbol: "square.and.pencil", title: "Start blank", detail: "Write the first entry yourself.", primary: false, action: startBlank)
+            }
+            if scanning { ProgressView().controlSize(.small) }
+            Text(verbatim: model.resolvedRepoRoot.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                .font(.caption.monospaced())
+                .foregroundStyle(.tertiary)
+        }
+        .padding(40)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .sheet(item: $review) { ImportReviewSheet(model: model, review: $0) }
+        .onChange(of: model.intent) { _, intent in
+            if intent == .bootstrap { model.intent = nil; scan() }
+        }
+    }
+
+    private func choice(symbol: String, title: LocalizedStringKey, detail: LocalizedStringKey, primary: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 8) {
+                Image(systemName: symbol).font(.title2).foregroundStyle(primary ? Theme.accent : .secondary)
+                Text(title).font(.headline)
+                Text(detail).font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(16)
+            .frame(width: 220, height: 130, alignment: .topLeading)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cardRadius))
+            .overlay(RoundedRectangle(cornerRadius: Theme.cardRadius).strokeBorder(primary ? Theme.accent.opacity(0.5) : Theme.hairline))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func scan() {
+        guard let engine = model.engine, !scanning else { return }
+        scanning = true
+        Task {
+            let result = await Task.detached { Result { try engine.bootstrap() } }.value
+            scanning = false
+            switch result {
+            case .success(let b) where b.memory.isEmpty && b.prompts.isEmpty:
+                model.show(.info, "No build files or agent instructions found in this folder.")
+            case .success(let b):
+                review = ImportReview(title: String(localized: "Review the draft"), memory: b.memory, prompts: b.prompts)
+            case .failure(let e):
+                model.show(.error, verbatim: e.localizedDescription)
+            }
         }
     }
 }

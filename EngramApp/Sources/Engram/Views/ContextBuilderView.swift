@@ -3,6 +3,7 @@ import SwiftUI
 struct ContextBuilderView: View {
     @Bindable var model: WorkspaceModel
     @State private var bundle: ContextBundle?
+    @State private var highlighted = AttributedString()
     @State private var building = false
     @State private var debounce = Debouncer()
     @State private var generation = 0
@@ -29,6 +30,10 @@ struct ContextBuilderView: View {
     private var controls: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
+                Text("Preview exactly what an agent gets from build_context, or copy a bundle into a chat that has no MCP access.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Card("Task") {
                     TextField("Describe what the agent is about to do…", text: $model.contextState.task, axis: .vertical)
                         .textFieldStyle(.plain)
@@ -36,16 +41,13 @@ struct ContextBuilderView: View {
                         .lineLimit(3...8)
                         .focused($taskFocused)
                 }
-
                 Card("Budget") {
                     HStack {
                         Slider(value: Binding(
                             get: { Double(state.maxTokens) },
                             set: { model.contextState.maxTokens = Int($0 / 250) * 250 }
                         ), in: 500...32000)
-                        Text("\(state.maxTokens.formatted()) tok")
-                            .font(.callout.monospacedDigit())
-                            .frame(width: 84, alignment: .trailing)
+                        Text("\(state.maxTokens) tokens").font(.callout.monospacedDigit()).frame(width: 96, alignment: .trailing)
                     }
                     HStack(spacing: 6) {
                         ForEach([2000, 4000, 8000, 16000, 32000], id: \.self) { n in
@@ -56,10 +58,9 @@ struct ContextBuilderView: View {
                         }
                         Spacer()
                     }
-                    Toggle("Auto-rank against the task", isOn: $model.contextState.autoRank)
-                    Toggle("Include agent handoff", isOn: $model.contextState.includeHandoff)
+                    Toggle("Rank against the task", isOn: $model.contextState.autoRank)
+                    Toggle("Include the agent handoff", isOn: $model.contextState.includeHandoff)
                 }
-
                 promptCard
                 candidates
             }
@@ -75,12 +76,12 @@ struct ContextBuilderView: View {
                 set: { model.contextState.prompt = $0.isEmpty ? nil : $0 }
             )) {
                 Text("None").tag("")
-                ForEach(model.document?.prompts ?? []) { Text($0.name).tag($0.name) }
+                ForEach(model.document?.prompts ?? []) { Text(verbatim: $0.name).tag($0.name) }
             }
             if let name = state.prompt, let p = model.document?.prompt(name) {
                 ForEach(p.variables, id: \.self) { v in
                     HStack {
-                        Text(v).font(.caption.monospaced()).foregroundStyle(.secondary).frame(width: 90, alignment: .leading)
+                        Text(verbatim: v).font(.caption.monospaced()).foregroundStyle(.secondary).frame(width: 90, alignment: .leading)
                         TextField(v, text: Binding(
                             get: { state.promptVars[v, default: ""] },
                             set: { model.contextState.promptVars[v] = $0.isEmpty ? nil : $0 }
@@ -115,13 +116,23 @@ struct ContextBuilderView: View {
         )) {
             if let items = bundle?.items, !items.isEmpty {
                 VStack(spacing: 2) {
-                    ForEach(items) { item in CandidateRow(item: item, state: $model.contextState) }
+                    ForEach(items) { item in
+                        CandidateRow(item: item, state: $model.contextState) { open(item) }
+                    }
                 }
             } else {
                 Text("Add memory, decisions or architecture nodes to build context from.")
                     .font(.callout)
                     .foregroundStyle(.tertiary)
             }
+        }
+    }
+
+    private func open(_ item: ContextItem) {
+        switch item.kind {
+        case .memory: model.reveal(EntityRef(kind: "memory", id: item.itemId))
+        case .decision: model.reveal(EntityRef(kind: "decision", id: item.itemId))
+        case .node: model.reveal(EntityRef(kind: "node", id: item.itemId))
         }
     }
 
@@ -133,18 +144,24 @@ struct ContextBuilderView: View {
                         TokenBadge(tokens: bundle?.tokens ?? 0, budget: state.maxTokens)
                         if building { ProgressView().controlSize(.small) }
                         if let b = bundle, b.deadEnds > 0 {
-                            Chip(text: "\(b.deadEnds) dead end\(b.deadEnds == 1 ? "" : "s")", color: Theme.color(for: .error), symbol: "xmark.octagon")
+                            Chip(text: "\(b.deadEnds) dead ends", color: .secondary, symbol: "xmark.octagon")
                                 .help("Rejected alternatives from decisions outside the bundle, listed so agents do not propose them again")
                         }
                     }
-                    BudgetBar(tokens: bundle?.tokens ?? 0, budget: state.maxTokens)
-                        .frame(width: 240, height: 5)
+                    BudgetBar(tokens: bundle?.tokens ?? 0, budget: state.maxTokens).frame(width: 240, height: 5)
                 }
                 Spacer()
+                Picker("Format", selection: $model.contextState.markdown) {
+                    Text(verbatim: "XML").tag(false)
+                    Text(verbatim: "Markdown").tag(true)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
                 Button {
-                    if let output = bundle?.output { model.copy(output, message: "Context copied · \(bundle?.tokens ?? 0) tokens") }
+                    if let b = bundle { model.copy(b.output, message: "Context copied · \(b.tokens) tokens") }
                 } label: {
-                    Label("Copy as XML context", systemImage: "doc.on.clipboard")
+                    Label(state.markdown ? "Copy as Markdown" : "Copy as XML", systemImage: "doc.on.clipboard")
                 }
                 .buttonStyle(.borderedProminent)
                 .tint(Theme.accent)
@@ -155,7 +172,7 @@ struct ContextBuilderView: View {
             .padding(.vertical, 12)
             Divider()
             ScrollView([.vertical, .horizontal]) {
-                Text(highlighted(bundle?.output ?? ""))
+                Text(highlighted)
                     .font(Theme.monoSmall)
                     .textSelection(.enabled)
                     .padding(16)
@@ -165,9 +182,17 @@ struct ContextBuilderView: View {
         }
     }
 
-    private func highlighted(_ xml: String) -> AttributedString {
+    nonisolated private static func highlight(_ text: String, markdown: Bool) -> AttributedString {
         var out = AttributedString()
-        var rest = xml[...]
+        if markdown {
+            for line in text.split(separator: "\n", omittingEmptySubsequences: false) {
+                var piece = AttributedString(String(line) + "\n")
+                if line.hasPrefix("#") { piece.foregroundColor = Theme.accent }
+                out += piece
+            }
+            return out
+        }
+        var rest = text[...]
         while let open = rest.firstIndex(of: "<") {
             out += AttributedString(String(rest[..<open]))
             guard let close = rest[open...].firstIndex(of: ">") else { break }
@@ -187,6 +212,7 @@ struct ContextBuilderView: View {
         r.maxTokens = s.maxTokens
         r.autoRank = s.autoRank
         r.includeHandoff = s.includeHandoff
+        r.markdown = s.markdown
         r.prompt = s.prompt
         r.promptVars = s.promptVars
         func ids(_ set: Set<String>, _ kind: String) -> [String] {
@@ -209,12 +235,20 @@ struct ContextBuilderView: View {
             let gen = generation
             building = true
             Task {
-                let result = await Task.detached { Result { try engine.buildContext(req) } }.value
+                let result = await Task.detached { () -> Result<(ContextBundle, AttributedString), Error> in
+                    Result {
+                        let b = try engine.buildContext(req)
+                        return (b, Self.highlight(b.output, markdown: req.markdown))
+                    }
+                }.value
                 guard gen == generation else { return }
                 building = false
                 switch result {
-                case .success(let b): bundle = b
-                case .failure(let e): model.show(.error, verbatim: e.localizedDescription)
+                case .success(let (b, text)):
+                    bundle = b
+                    highlighted = text
+                case .failure(let e):
+                    model.show(.error, verbatim: e.localizedDescription)
                 }
             }
         }
@@ -243,9 +277,8 @@ private struct BudgetBar: View {
 private struct CandidateRow: View {
     var item: ContextItem
     @Binding var state: ContextBuilderState
-
-    private var forced: Bool { state.forced.contains(item.id) }
-    private var excluded: Bool { state.excluded.contains(item.id) }
+    var onOpen: () -> Void
+    @State private var hover = false
 
     var body: some View {
         HStack(spacing: 8) {
@@ -257,27 +290,35 @@ private struct CandidateRow: View {
             }))
             .toggleStyle(.checkbox)
             .labelsHidden()
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 16)
-            VStack(alignment: .leading, spacing: 1) {
-                HStack(spacing: 5) {
-                    Text(item.itemId).font(.caption.monospaced().weight(.medium)).lineLimit(1)
-                    reasonChip
+            Button(action: onOpen) {
+                HStack(spacing: 8) {
+                    Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 16)
+                    VStack(alignment: .leading, spacing: 1) {
+                        HStack(spacing: 5) {
+                            Text(verbatim: item.itemId).font(.caption.monospaced().weight(.medium)).lineLimit(1)
+                            reasonChip
+                        }
+                        Text(verbatim: item.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                        if !item.matched.isEmpty {
+                            Text(verbatim: item.matched.joined(separator: " · ")).font(.caption2).foregroundStyle(Theme.accent.opacity(0.85)).lineLimit(1)
+                        }
+                    }
+                    Spacer(minLength: 4)
+                    VStack(alignment: .trailing, spacing: 2) {
+                        ScoreBar(score: item.score).frame(width: 46, height: 4)
+                        Text("\(item.tokens) tok").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
+                    }
                 }
-                Text(item.title).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                if !item.matched.isEmpty {
-                    Text(item.matched.joined(separator: " · ")).font(.caption2).foregroundStyle(Theme.accent.opacity(0.85)).lineLimit(1)
-                }
+                .contentShape(Rectangle())
             }
-            Spacer(minLength: 4)
-            VStack(alignment: .trailing, spacing: 2) {
-                ScoreBar(score: item.score).frame(width: 46, height: 4)
-                Text("\(item.tokens) tok").font(.caption2.monospacedDigit()).foregroundStyle(.tertiary)
-            }
+            .buttonStyle(.plain)
+            .help("Open this item")
         }
         .padding(.vertical, 4)
         .padding(.horizontal, 4)
-        .background(item.included ? Theme.accent.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 6))
+        .background(hover ? Theme.hoverFill : item.included ? Theme.accent.opacity(0.06) : .clear, in: RoundedRectangle(cornerRadius: 6))
         .opacity(item.reason == .excluded || item.reason == .belowThreshold ? 0.6 : 1)
+        .onHover { hover = $0 }
     }
 
     private var symbol: String {
@@ -293,9 +334,8 @@ private struct CandidateRow: View {
         switch item.reason {
         case .pinned: Chip(text: "pinned", color: Theme.accent, symbol: "pin.fill")
         case .selected: Chip(text: "forced", color: Theme.accent)
-        case .ranked: EmptyView()
+        case .ranked, .belowThreshold: EmptyView()
         case .overBudget: Chip(text: "over budget", color: Theme.color(for: .warning))
-        case .belowThreshold: EmptyView()
         case .excluded: Chip(text: "excluded", color: .secondary)
         }
     }

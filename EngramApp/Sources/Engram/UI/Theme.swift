@@ -43,6 +43,10 @@ enum Theme {
         }
     }
 
+    static let success = Color(red: 0.20, green: 0.72, blue: 0.45)
+    static let superseded = Color(red: 0.95, green: 0.62, blue: 0.15)
+    static let neutral = Color.secondary
+
     static func scoreColor(_ score: Int) -> Color {
         score >= 85 ? Color(red: 0.20, green: 0.72, blue: 0.45) : score >= 60 ? color(for: .warning) : color(for: .error)
     }

@@ -66,6 +66,10 @@ struct EngramDocument: Decodable, Hashable {
     var prompts: [Prompt]
     var handoff: Handoff
 
+    var isEmpty: Bool {
+        memory.isEmpty && architecture.nodes.isEmpty && decisions.isEmpty && prompts.isEmpty && handoff.isEmpty
+    }
+
     func memoryEntry(_ key: String) -> MemoryEntry? { memory.first { $0.key == key } }
     func decision(_ id: String) -> Decision? { decisions.first { $0.id.caseInsensitiveCompare(id) == .orderedSame } }
     func node(_ id: String) -> ArchNode? { architecture.nodes.first { $0.id == id } }
@@ -76,6 +80,7 @@ struct Project: Decodable, Hashable {
     var name: String
     @Lines var description: String
     var repoRoot: String?
+    @Default<DefaultSettings> var settings: ProjectSettings
     var createdAt: String
     var updatedAt: String
 }
@@ -333,8 +338,11 @@ struct HealthIssue: Decodable, Hashable, Identifiable {
     var related: EntityRef?
     var path: String?
     var suggestion: String?
+    var fix: HealthFix?
 
-    var kindTitle: String {
+    var kindTitle: String { Self.title(forKind: kind) }
+
+    static func title(forKind kind: String) -> String {
         switch kind {
         case "missing_repo": String(localized: "Missing repository")
         case "broken_path": String(localized: "Broken path")
@@ -358,6 +366,7 @@ struct HealthSummary: Decodable, Hashable {
     var infos: Int
     var pathsChecked: Int
     var referencesChecked: Int
+    var ignored: Int
 }
 
 struct HealthReport: Decodable, Hashable {
@@ -409,13 +418,11 @@ struct RenderedPrompt: Decodable, Hashable {
     var variables: [String]
 }
 
-struct MCPConfig: Decodable, Hashable {
-    var serverName: String
-    var json: String
-    var claudeCodeCommand: String
+struct ReloadResult: Decodable {
+    var changed: Bool
+    var revision: UInt64
+    var diff: DocumentDiff?
 }
-
-struct ReloadResult: Decodable { var changed: Bool; var revision: UInt64 }
 
 enum EngramDate {
     private static let parser: ISO8601DateFormatter = {
