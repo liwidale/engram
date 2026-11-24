@@ -23,7 +23,7 @@ struct Chip: View {
 struct SupersededBadge: View {
     var by: String?
     var body: some View {
-        Chip(text: by.map { "SUPERSEDED → \($0)" } ?? "SUPERSEDED", color: .orange, symbol: "arrow.uturn.right")
+        Chip(text: by.map { "SUPERSEDED → \($0)" } ?? "SUPERSEDED", color: Theme.superseded, symbol: "arrow.uturn.right")
     }
 }
 

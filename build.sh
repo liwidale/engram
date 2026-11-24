@@ -122,6 +122,7 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [[ -f "$APP_PKG/Support/AppIcon.icns" ]]; then
   cp "$APP_PKG/Support/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
+cp "$ROOT/branding/logo.png" "$APP/Contents/Resources/Logo.png"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 log "Signing (ad-hoc)"

@@ -5,13 +5,18 @@ struct WelcomeView: View {
     @Environment(\.dismissWindow) private var dismissWindow
     @State private var recents: [URL] = []
 
+    private static let logo: NSImage = Bundle.main.url(forResource: "Logo", withExtension: "png")
+        .flatMap(NSImage.init(contentsOf:)) ?? NSApplication.shared.applicationIconImage
+
     var body: some View {
         HStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 22) {
                 VStack(alignment: .leading, spacing: 6) {
-                    Image(systemName: "brain.head.profile")
-                        .font(.system(size: 44, weight: .light))
-                        .foregroundStyle(Theme.accent)
+                    Image(nsImage: Self.logo)
+                        .resizable()
+                        .interpolation(.high)
+                        .frame(width: 64, height: 64)
+                        .accessibilityHidden(true)
                     Text("Engram").font(.largeTitle.weight(.bold))
                     Text("Project memory for you and your AI agents, versioned with your code.")
                         .foregroundStyle(.secondary)

@@ -129,7 +129,7 @@ private struct MemoryRow: View {
                     .foregroundStyle(entry.isActive ? .primary : .secondary)
                     .lineLimit(1)
                 if entry.pinned {
-                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.accent).help("Pinned to every context")
+                    Image(systemName: "pin.fill").font(.caption2).foregroundStyle(Theme.pinned).help("Pinned to every context")
                 }
                 Spacer(minLength: 0)
                 if !entry.isActive { Chip(text: "Superseded", color: Theme.superseded) }

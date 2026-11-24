@@ -6,8 +6,9 @@ let branding = root.appendingPathComponent("branding")
 let icons = branding.appendingPathComponent("icons")
 try fm.createDirectory(at: icons, withIntermediateDirectories: true)
 
-let accentTop = NSColor(red: 0.47, green: 0.36, blue: 0.97, alpha: 1)
-let accentBottom = NSColor(red: 0.27, green: 0.29, blue: 0.86, alpha: 1)
+let accent = NSColor(red: 0.659, green: 0.471, blue: 0.333, alpha: 1)
+let graphiteTop = NSColor(red: 0.22, green: 0.225, blue: 0.24, alpha: 1)
+let graphiteBottom = NSColor(red: 0.11, green: 0.115, blue: 0.125, alpha: 1)
 
 func bitmap(_ w: Int, _ h: Int, _ draw: (CGFloat, CGFloat) -> Void) -> NSBitmapImageRep {
     let rep = NSBitmapImageRep(
@@ -26,7 +27,7 @@ func drawMark(in frame: NSRect) {
     let inset = s * 100 / 1024
     let body = frame.insetBy(dx: inset, dy: inset)
     let tile = NSBezierPath(roundedRect: body, xRadius: s * 185 / 1024, yRadius: s * 185 / 1024)
-    NSGradient(colors: [accentBottom, accentTop])!.draw(in: tile, angle: 90)
+    NSGradient(colors: [graphiteBottom, graphiteTop])!.draw(in: tile, angle: 90)
     let nodes = [CGPoint(x: 0.5, y: 0.70), CGPoint(x: 0.31, y: 0.36), CGPoint(x: 0.69, y: 0.36)]
         .map { CGPoint(x: frame.minX + $0.x * s, y: frame.minY + $0.y * s) }
     let edges = NSBezierPath()
@@ -36,14 +37,14 @@ func drawMark(in frame: NSRect) {
         edges.move(to: nodes[a])
         edges.line(to: nodes[b])
     }
-    NSColor.white.withAlphaComponent(0.55).setStroke()
+    accent.withAlphaComponent(0.8).setStroke()
     edges.stroke()
     for (i, p) in nodes.enumerated() {
         let r = s * (i == 0 ? 0.105 : 0.085)
-        NSColor.white.setFill()
+        NSColor(red: 0.95, green: 0.93, blue: 0.90, alpha: 1).setFill()
         NSBezierPath(ovalIn: NSRect(x: p.x - r, y: p.y - r, width: 2 * r, height: 2 * r)).fill()
         let core = r * 0.45
-        NSColor(red: 0.37, green: 0.33, blue: 0.93, alpha: 1).setFill()
+        accent.setFill()
         NSBezierPath(ovalIn: NSRect(x: p.x - core, y: p.y - core, width: 2 * core, height: 2 * core)).fill()
     }
 }
@@ -56,7 +57,7 @@ try mark(1024).write(to: branding.appendingPathComponent("logo.png"))
 let wordmark = bitmap(1600, 400) { w, h in
     drawMark(in: NSRect(x: 0, y: 0, width: h, height: h))
     let font = NSFont.systemFont(ofSize: 190, weight: .bold)
-    let text = NSAttributedString(string: "Engram", attributes: [.font: font, .foregroundColor: accentBottom])
+    let text = NSAttributedString(string: "Engram", attributes: [.font: font, .foregroundColor: accent])
     text.draw(at: NSPoint(x: h + 40, y: (h - text.size().height) / 2))
 }
 try png(wordmark).write(to: branding.appendingPathComponent("wordmark.png"))
@@ -101,7 +102,7 @@ try fm.createDirectory(at: assets, withIntermediateDirectories: true)
 try mark(256).write(to: assets.appendingPathComponent("icon.png"))
 
 let preview = bitmap(1600, 1000) { w, h in
-    NSColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1).setFill()
+    NSColor(red: 0.11, green: 0.115, blue: 0.125, alpha: 1).setFill()
     NSRect(x: 0, y: 0, width: w, height: h).fill()
     let size: CGFloat = 220
     drawMark(in: NSRect(x: (w - size) / 2, y: h / 2 + 10, width: size, height: size))
