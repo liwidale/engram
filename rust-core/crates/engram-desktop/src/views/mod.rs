@@ -6,5 +6,6 @@ pub mod handoff;
 pub mod health;
 pub mod memory;
 pub mod palette;
+pub mod preferences;
 pub mod prompts;
 pub mod welcome;

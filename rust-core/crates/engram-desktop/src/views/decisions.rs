@@ -1,11 +1,11 @@
 use crate::i18n::{tr, trf};
+use crate::markdown;
 use crate::theme;
 use crate::widgets::{self, chip, muted};
 use crate::workspace::{DecisionDraft, Dialog, Draft, Workspace};
 use eframe::egui::{self, RichText, Ui};
 use engram_core::{Decision, DecisionStatus};
 use serde_json::json;
-use std::time::Instant;
 
 pub fn new_decision(ws: &mut Workspace, supersede: Option<&Decision>) {
     ws.dialog = Some(match supersede {
@@ -31,16 +31,19 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace) {
         .resizable(true)
         .default_size(300.0)
         .show(ui, |ui| list(ui, ws));
-    egui::CentralPanel::default().show(ui, |ui| match ws.decision.clone().and_then(|id| ws.doc.decision(&id).cloned()) {
-        Some(d) => editor(ui, ws, d),
-        None => {
-            if widgets::empty_state(
-                ui,
-                tr("Decision log"),
-                tr("Architecture decision records with the alternatives you rejected and why, so agents never propose dead ends again."),
-                Some(tr("Log decision")),
-            ) {
-                new_decision(ws, None);
+    egui::CentralPanel::default().show(ui, |ui| {
+        match ws.decision.clone().and_then(|id| ws.doc.decision(&id).cloned()) {
+            Some(d) => editor(ui, ws, d),
+            None => {
+                if widgets::empty_state(
+                    ui,
+                    tr("Decision log"),
+                    tr("Record what you decided and which options you ruled out, so nobody proposes them again."),
+                    Some(tr("Agents add records with log_decision.")),
+                    Some(tr("Log decision")),
+                ) {
+                    new_decision(ws, None);
+                }
             }
         }
     });
@@ -77,8 +80,8 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
         .collect();
     items.sort_by(|a, b| (!a.is_active(), std::cmp::Reverse(&b.id)).cmp(&(!b.is_active(), std::cmp::Reverse(&a.id))));
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        if items.is_empty() {
-            muted(ui, tr("No decisions"));
+        if items.is_empty() && !ws.doc.decisions.is_empty() {
+            muted(ui, tr("No decisions match"));
         }
         for d in items {
             let selected = ws.decision.as_deref() == Some(d.id.as_str());
@@ -95,7 +98,7 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
                     ui.horizontal(|ui| {
                         ui.label(RichText::new(&d.id).monospace().strong().color(theme::ACCENT));
                         if d.is_active() {
-                            chip(ui, tr("Active"), theme::SUCCESS);
+                            chip(ui, tr("Active"), theme::MUTED);
                         } else {
                             chip(
                                 ui,
@@ -103,7 +106,7 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
                                     .as_ref()
                                     .map(|s| format!("→ {s}"))
                                     .unwrap_or_else(|| tr("Deprecated").into()),
-                                theme::MUTED,
+                                theme::SUPERSEDED,
                             );
                         }
                     });
@@ -125,54 +128,73 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
                 ws.decision = Some(d.id.clone());
                 ws.decision_draft = None;
             }
+            resp.context_menu(|ui| {
+                if ui.button(tr("Copy as Markdown")).clicked() {
+                    ui.ctx().copy_text(engram_core::render::decision_markdown(&d));
+                    ui.close();
+                }
+                if d.is_active() {
+                    if ui.button(tr("Supersede with new decision")).clicked() {
+                        new_decision(ws, Some(&d));
+                        ui.close();
+                    }
+                    if ui.button(tr("Deprecate")).clicked() {
+                        ws.perform_json(json!({"op": "update_decision", "id": d.id, "status": "deprecated"}));
+                        ui.close();
+                    }
+                } else if ui.button(tr("Reactivate")).clicked() {
+                    ws.perform_json(json!({"op": "update_decision", "id": d.id, "status": "active"}));
+                    ui.close();
+                }
+                ui.separator();
+                if ui.button(tr("Delete")).clicked() {
+                    ws.delete(d.id.clone(), json!({"op": "delete_decision", "id": d.id}));
+                    ui.close();
+                }
+            });
         }
     });
 }
 
-fn ensure_draft(ws: &mut Workspace, d: &Decision) {
-    if ws.decision_draft.as_ref().is_some_and(|x| x.base.id == d.id) {
-        return;
-    }
-    ws.decision_draft = Some(Draft::new(DecisionDraft {
-        id: d.id.clone(),
-        title: d.title.clone(),
-        context: d.context.to_string(),
-        decision: d.decision.to_string(),
-        rejected: d
-            .rejected_alternatives
-            .iter()
-            .map(|a| (a.option.clone(), a.reason.clone()))
-            .collect(),
-        consequences: d.consequences.to_string(),
-        related: d.related.clone(),
-    }));
+fn text_card(ui: &mut Ui, title: &str, text: &mut String, hint: &str, rows: usize, preview: bool) -> bool {
+    widgets::card(ui, Some(title), |ui| {
+        if preview {
+            markdown::show(ui, if text.is_empty() { tr("Empty") } else { text });
+            false
+        } else {
+            widgets::multiline(ui, text, hint, rows, false).changed()
+        }
+    })
 }
 
-pub fn commit(ws: &mut Workspace) {
-    let Some(draft) = ws.decision_draft.as_ref().filter(|d| d.dirty()) else {
-        return;
+pub fn commit(ws: &mut Workspace) -> bool {
+    let Some(draft) = ws.decision_draft.as_mut().filter(|d| d.dirty() && d.conflict.is_none()) else {
+        return false;
     };
     let v = draft.value.clone();
+    draft.mark_saved();
     let rejected: Vec<serde_json::Value> = v
         .rejected
         .iter()
         .filter(|(o, _)| !o.trim().is_empty())
         .map(|(o, r)| json!({"option": o, "reason": r}))
         .collect();
-    let op = json!({
+    ws.perform_json(json!({
         "op": "update_decision", "id": v.id, "title": v.title, "context": v.context, "decision": v.decision,
-        "rejected_alternatives": rejected, "consequences": v.consequences, "related": v.related
-    });
-    if ws.perform_json(op).is_some() {
-        ws.decision_draft = Some(Draft::new(v));
-    }
+        "rejected_alternatives": rejected, "consequences": v.consequences, "related": v.related, "files": v.files
+    }))
+    .is_some()
 }
 
 fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
-    ensure_draft(ws, &d);
+    if ws.decision_draft.as_ref().is_none_or(|x| x.base.id != d.id) {
+        ws.decision_draft = Some(Draft::new(DecisionDraft::from(&d)));
+    }
     let mut changed = false;
     let mut ops: Vec<serde_json::Value> = Vec::new();
     let mut supersede = false;
+    let mut delete = false;
+    let preview = ws.decision_preview;
     ui.add_space(6.0);
     ui.horizontal(|ui| {
         ui.label(RichText::new(&d.id).monospace().strong().color(theme::ACCENT));
@@ -181,7 +203,7 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
             .add(
                 egui::TextEdit::singleline(&mut draft.title)
                     .font(egui::TextStyle::Heading)
-                    .desired_width(f32::INFINITY.min(520.0)),
+                    .desired_width(420.0),
             )
             .changed();
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -195,10 +217,14 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
                     ui.close();
                 }
                 if ui.button(tr("Delete")).clicked() {
-                    ops.push(json!({"op": "delete_decision", "id": d.id}));
+                    delete = true;
                     ui.close();
                 }
             });
+            let mut p = preview;
+            if ui.toggle_value(&mut p, tr("Preview")).changed() {
+                ws.decision_preview = p;
+            }
             let mut status = d.status;
             ui.selectable_value(&mut status, DecisionStatus::Deprecated, tr("Deprecated"));
             ui.selectable_value(&mut status, DecisionStatus::Active, tr("Active"));
@@ -210,34 +236,59 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
     if !d.is_active() {
         let text = match &d.superseded_by {
             Some(by) => trf(
-                "Deprecated and superseded by {id}. Agents no longer receive this decision.",
+                "Deprecated and replaced by {id}. Agents no longer receive this decision.",
                 &[("id", by)],
             ),
             None => tr("Deprecated. Agents no longer receive this decision.").to_owned(),
         };
-        ui.label(RichText::new(text).color(theme::WARNING));
+        ui.label(RichText::new(text).color(theme::SUPERSEDED));
+    }
+    if ws.decision_draft.as_ref().is_some_and(|x| x.conflict.is_some()) {
+        match widgets::conflict_bar(ui) {
+            Some(true) => ws.decision_draft.as_mut().expect("draft").load_external(),
+            Some(false) => ws.decision_draft.as_mut().expect("draft").keep_mine(),
+            None => {}
+        }
     }
     ui.separator();
+    let mut query = ws.path_query.remove("decision").unwrap_or_default();
+    let hits = if query.trim().is_empty() {
+        Vec::new()
+    } else {
+        ws.repo_files(&query)
+    };
+    let candidates: Vec<String> = ws
+        .doc
+        .memory
+        .iter()
+        .filter(|m| m.is_active())
+        .map(|m| m.key.clone())
+        .chain(ws.doc.architecture.nodes.iter().map(|n| n.id.clone()))
+        .chain(ws.doc.decisions.iter().filter(|x| x.id != d.id).map(|x| x.id.clone()))
+        .collect();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         let draft = &mut ws.decision_draft.as_mut().expect("draft").value;
-        widgets::card(ui, Some(tr("Context")), |ui| {
-            changed |= widgets::multiline(
-                ui,
-                &mut draft.context,
-                tr("What forces and constraints led here?"),
-                3,
-                false,
-            )
-            .changed()
-        });
-        widgets::card(ui, Some(tr("Decision")), |ui| {
-            changed |= widgets::multiline(ui, &mut draft.decision, tr("What did you decide?"), 3, false).changed()
-        });
+        changed |= text_card(
+            ui,
+            tr("Context"),
+            &mut draft.context,
+            tr("What forces and constraints led here?"),
+            3,
+            preview,
+        );
+        changed |= text_card(
+            ui,
+            tr("Decision"),
+            &mut draft.decision,
+            tr("What did you decide?"),
+            3,
+            preview,
+        );
         widgets::card(ui, Some(tr("Rejected alternatives")), |ui| {
             if draft.rejected.is_empty() {
                 muted(
                     ui,
-                    tr("Record what you considered and why it lost. Agents treat these as dead ends."),
+                    tr("Note what you considered and why it lost. Agents treat these as dead ends."),
                 );
             }
             let mut remove = None;
@@ -270,15 +321,16 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
                 draft.rejected.push((String::new(), String::new()));
             }
         });
-        widgets::card(ui, Some(tr("Consequences")), |ui| {
-            changed |= widgets::multiline(
-                ui,
-                &mut draft.consequences,
-                tr("Trade-offs you accept (optional)"),
-                2,
-                false,
-            )
-            .changed()
+        changed |= text_card(
+            ui,
+            tr("Consequences"),
+            &mut draft.consequences,
+            tr("Trade-offs you accept (optional)"),
+            2,
+            preview,
+        );
+        widgets::card(ui, Some(tr("Affected files")), |ui| {
+            changed |= widgets::file_list(ui, "decision-files", &mut draft.files, &mut query, |_| hits);
         });
         widgets::card(ui, Some(tr("Related")), |ui| {
             let mut remove = None;
@@ -294,21 +346,12 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
                 draft.related.remove(i);
                 changed = true;
             }
-            let candidates: Vec<String> = ws
-                .doc
-                .memory
-                .iter()
-                .filter(|m| m.is_active())
-                .map(|m| m.key.clone())
-                .chain(ws.doc.architecture.nodes.iter().map(|n| n.id.clone()))
-                .chain(ws.doc.decisions.iter().filter(|x| x.id != d.id).map(|x| x.id.clone()))
-                .filter(|c| !draft.related.contains(c))
-                .collect();
             ui.menu_button(tr("Link memory, node or decision"), |ui| {
                 egui::ScrollArea::vertical().max_height(260.0).show(ui, |ui| {
-                    for c in candidates {
-                        if ui.button(&c).clicked() {
-                            draft.related.push(c);
+                    let open: Vec<&String> = candidates.iter().filter(|c| !draft.related.contains(c)).collect();
+                    for c in open {
+                        if ui.button(c).clicked() {
+                            draft.related.push(c.clone());
                             changed = true;
                             ui.close();
                         }
@@ -324,30 +367,28 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
                     &[("when", &widgets::relative_time(Some(&d.created_at)))],
                 ),
             );
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let dirty = ws.decision_draft.as_ref().is_some_and(Draft::dirty);
-                if ui.add_enabled(dirty, egui::Button::new(tr("Save"))).clicked() {
-                    commit(ws);
-                }
-                muted(ui, if dirty { tr("Edited") } else { tr("Saved") });
-            });
         });
     });
+    ws.path_query.insert("decision".into(), query);
+    let draft = ws.decision_draft.as_mut().expect("draft");
     if changed {
-        if let Some(x) = ws.decision_draft.as_mut() {
-            x.edited_at = Instant::now();
-        }
+        draft.touch();
     }
+    let dirty = draft.dirty();
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            widgets::save_status(ui, dirty)
+        });
+    });
     if supersede {
         commit(ws);
         new_decision(ws, Some(&d));
     }
+    if delete {
+        ws.delete(d.id.clone(), json!({"op": "delete_decision", "id": d.id}));
+    }
     for op in ops {
         commit(ws);
-        if op["op"] == "delete_decision" {
-            ws.decision = None;
-            ws.decision_draft = None;
-        }
         ws.perform_json(op);
     }
 }

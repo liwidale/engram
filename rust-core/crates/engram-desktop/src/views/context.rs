@@ -47,7 +47,11 @@ pub fn rebuild_if_needed(ws: &mut Workspace) {
         include_handoff: c.include_handoff,
         auto_rank: c.auto_rank,
         min_score: None,
-        format: engram_core::context::ContextFormat::Xml,
+        format: if c.markdown {
+            engram_core::context::ContextFormat::Markdown
+        } else {
+            engram_core::context::ContextFormat::Xml
+        },
     };
     c.bundle = Some(build_context(&ws.doc, &req));
     c.stale = false;
@@ -56,6 +60,7 @@ pub fn rebuild_if_needed(ws: &mut Workspace) {
 pub fn show(ui: &mut Ui, ws: &mut Workspace) {
     rebuild_if_needed(ws);
     let mut touched = false;
+    let mut open: Option<(&str, String)> = None;
     egui::Panel::left("context-controls")
         .resizable(true)
         .default_size(420.0)
@@ -63,6 +68,10 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace) {
             egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
                 ui.add_space(6.0);
                 let c = &mut ws.context;
+                ui.label(
+                    RichText::new(tr("Preview exactly what an agent gets from build_context, or copy a bundle into a chat that has no MCP access."))
+                        .color(theme::MUTED),
+                );
                 widgets::card(ui, Some(tr("Task")), |ui| {
                     touched |=
                         widgets::multiline(ui, &mut c.task, tr("Describe what the agent is about to do"), 3, false)
@@ -182,7 +191,13 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace) {
                                         muted(ui, format!("{} · {:.2}", item.tokens, item.score));
                                     });
                                 });
-                                muted(ui, &item.title);
+                                if ui
+                                    .add(egui::Label::new(RichText::new(&item.title).small().color(theme::MUTED)).sense(egui::Sense::click()))
+                                    .on_hover_text(tr("Open this item"))
+                                    .clicked()
+                                {
+                                    open = Some((kind_key(item.kind), item.id.clone()));
+                                }
                                 if !item.matched.is_empty() {
                                     ui.label(RichText::new(item.matched.join(" · ")).small().color(theme::ACCENT));
                                 }
@@ -193,6 +208,9 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace) {
             });
         });
     egui::CentralPanel::default().show(ui, |ui| preview(ui, ws));
+    if let Some((kind, id)) = open {
+        crate::views::health::reveal(ws, kind, &id);
+    }
     if touched {
         ws.context.stale = true;
         ws.context.changed_at = Instant::now();
@@ -221,22 +239,39 @@ fn preview(ui: &mut Ui, ws: &mut Workspace) {
             ));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(widgets::primary_button(tr("Copy as XML context"))).clicked() {
+            let label = if ws.context.markdown {
+                tr("Copy as Markdown")
+            } else {
+                tr("Copy as XML")
+            };
+            if ui.add(widgets::primary_button(label)).clicked() {
                 ui.ctx().copy_text(bundle.output.clone());
                 ws.toast(
                     ToastKind::Success,
                     trf("Context copied, {n} tokens", &[("n", &bundle.tokens)]),
                 );
             }
+            let mut md = ws.context.markdown;
+            ui.selectable_value(&mut md, true, "Markdown");
+            ui.selectable_value(&mut md, false, "XML");
+            if md != ws.context.markdown {
+                ws.context.markdown = md;
+                ws.context.stale = true;
+                ws.context.changed_at = Instant::now() - std::time::Duration::from_secs(1);
+            }
         });
     });
     ui.separator();
     egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-        ui.label(highlight(ui, &bundle.output));
+        ui.label(highlight(
+            ui,
+            &bundle.output,
+            bundle.format == engram_core::context::ContextFormat::Markdown,
+        ));
     });
 }
 
-fn highlight(ui: &Ui, xml: &str) -> LayoutJob {
+fn highlight(ui: &Ui, xml: &str, markdown: bool) -> LayoutJob {
     let mut job = LayoutJob::default();
     let font = FontId::monospace(12.5);
     let text = TextFormat {
@@ -249,6 +284,20 @@ fn highlight(ui: &Ui, xml: &str) -> LayoutJob {
         color: theme::ACCENT,
         ..Default::default()
     };
+    if markdown {
+        for line in xml.split_inclusive('\n') {
+            job.append(
+                line,
+                0.0,
+                if line.starts_with('#') {
+                    tag.clone()
+                } else {
+                    text.clone()
+                },
+            );
+        }
+        return job;
+    }
     let mut rest = xml;
     while let Some(open) = rest.find('<') {
         job.append(&rest[..open], 0.0, text.clone());
