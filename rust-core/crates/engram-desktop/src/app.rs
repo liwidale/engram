@@ -514,7 +514,7 @@ fn sync_pill(ui: &mut egui::Ui, ws: &Workspace) {
 
 fn ago(d: Duration) -> String {
     match d.as_secs() {
-        0..=9 => tr("just now").to_owned(),
+        0..=9 => tr("a moment ago").to_owned(),
         s @ 10..=59 => trf("{n} s ago", &[("n", &s)]),
         s @ 60..=3599 => trf("{n} min ago", &[("n", &(s / 60))]),
         s => trf("{n} h ago", &[("n", &(s / 3600))]),

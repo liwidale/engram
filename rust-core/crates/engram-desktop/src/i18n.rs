@@ -53,11 +53,82 @@ pub fn trf(source: &'static str, args: &[(&str, &dyn Display)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    fn literals(text: &str) -> Vec<String> {
+        let mut out = Vec::new();
+        for start in ["tr(", "trf("] {
+            for (i, _) in text.match_indices(start) {
+                if text[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_') {
+                    continue;
+                }
+                let Some(rest) = text[i + start.len()..].trim_start().strip_prefix('"') else {
+                    continue;
+                };
+                let mut escaped = false;
+                let end = rest
+                    .char_indices()
+                    .find(|&(_, c)| {
+                        let close = c == '"' && !escaped;
+                        escaped = c == '\\' && !escaped;
+                        close
+                    })
+                    .map(|(j, _)| j);
+                if let Some(end) = end {
+                    out.push(rest[..end].to_owned());
+                }
+            }
+        }
+        out
+    }
+
+    fn sources(dir: &Path, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                sources(&path, out);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                && !path.ends_with("i18n_ru.rs")
+                && !path.ends_with("i18n.rs")
+            {
+                out.extend(literals(&std::fs::read_to_string(&path).unwrap()));
+            }
+        }
+    }
+
+    fn placeholders(s: &str) -> Vec<&str> {
+        let mut out: Vec<&str> = s
+            .split('{')
+            .skip(1)
+            .filter_map(|p| p.split_once('}').map(|(name, _)| name))
+            .filter(|name| !name.is_empty() && name.chars().all(|c| c.is_ascii_lowercase()))
+            .collect();
+        out.sort_unstable();
+        out
+    }
+
+    #[test]
+    fn every_interface_string_has_a_russian_translation() {
+        let mut keys = Vec::new();
+        sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"), &mut keys);
+        assert!(keys.len() > 300, "the scanner found the interface strings");
+        let table: Table = crate::i18n_ru::RU.iter().copied().collect();
+        let missing: Vec<&String> = keys.iter().filter(|k| !table.contains_key(k.as_str())).collect();
+        assert!(missing.is_empty(), "missing Russian translations: {missing:#?}");
+        for (source, ru) in crate::i18n_ru::RU {
+            assert_eq!(
+                placeholders(source),
+                placeholders(ru),
+                "placeholders differ for {source:?}"
+            );
+            assert!(keys.iter().any(|k| k == source), "unused translation: {source:?}");
+        }
+    }
 
     #[test]
     fn english_is_the_source_language() {
         set_language(Language::English);
         assert_eq!(tr("Save"), "Save");
-        assert_eq!(trf("Saved revision {rev}", &[("rev", &7)]), "Saved revision 7");
+        assert_eq!(trf("Saved, revision {rev}", &[("rev", &7)]), "Saved, revision 7");
     }
 }

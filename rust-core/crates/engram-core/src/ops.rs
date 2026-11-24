@@ -736,7 +736,7 @@ fn upsert_memory(doc: &mut EngramDocument, m: UpsertMemory, now: &str) -> Result
             true
         }
     };
-    let e = doc.memory_entry(&key).expect("just upserted");
+    let e = doc.memory_entry(&key).expect("upserted above");
     Ok(json!({ "key": key, "created": created, "status": e.status, "supersedes": e.supersedes, "warnings": warnings }))
 }
 
@@ -793,7 +793,7 @@ fn add_node(doc: &mut EngramDocument, n: AddNode) -> Result<Value> {
             true
         }
     };
-    let node = doc.node(&id).expect("just upserted");
+    let node = doc.node(&id).expect("upserted above");
     let warnings: Vec<String> = unknown
         .iter()
         .map(|d| format!("dependency '{d}' is not a known node yet; add it with add_architecture_node"))
@@ -1156,10 +1156,10 @@ mod tests {
         assert!(op(json!({"op":"update_handoff","objective":" ","next_step":"x"}))
             .apply(&mut d)
             .is_err());
-        op(json!({"op":"update_handoff","objective":"o","next_step":"n","working_memory":"just notes"}))
+        op(json!({"op":"update_handoff","objective":"o","next_step":"n","working_memory":"plain notes"}))
             .apply(&mut d)
             .unwrap();
-        assert_eq!(d.handoff.working_memory.notes.as_str(), "just notes");
+        assert_eq!(d.handoff.working_memory.notes.as_str(), "plain notes");
         assert!(d.handoff.progress.is_empty(), "handoff is a full overwrite");
     }
 
