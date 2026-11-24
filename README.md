@@ -43,9 +43,9 @@ Get the latest version from the [releases page](https://github.com/liwidale/engr
 | --- | --- | --- |
 | macOS | `engram-v<version>-macos-universal.zip` | macOS 14 or later, Apple silicon or Intel |
 | Windows | `engram-v<version>-windows-x64-setup.exe` or the portable `engram-v<version>-windows-x64.zip` | Windows 10 or later, x64 |
-| Linux | `engram-v<version>-linux-x86_64.tar.gz` | glibc 2.35 or later, X11 or Wayland |
+| Linux | `engram-v<version>-linux-x64.tar.gz` | glibc 2.35 or later, X11 or Wayland |
 
-- **macOS:** unzip and move `Engram.app` to `Applications`.
+- **macOS:** unzip and move `Engram.app` to `Applications`. The app is not notarized yet, so on first launch open **System Settings > Privacy & Security** and click **Open Anyway**.
 - **Windows:** run the installer. It installs for your user account and registers the `.engram` file type.
 - **Linux:** unpack the archive and run `./install.sh`. It installs to `~/.local` and registers the `.engram` file type; pass `--prefix /usr/local` with `sudo` for a system-wide install.
 
@@ -232,7 +232,7 @@ Issues and pull requests are welcome.
 - Every change to `.engram` files goes through an operation in `engram-core`; the apps and the MCP server never write the file directly.
 - User-facing text in the apps goes through the translation layer: `String(localized:)` in Swift and `tr()` in Rust.
 - Work on a kebab-case branch, such as `add-csv-export`, and open a pull request against `main`.
-- To release, push an annotated tag such as `v0.2.0`. The tag message becomes the release notes, grouped under `### Added`, `### Improved` and `### Fixed`.
+- To release, set the version in `rust-core/Cargo.toml`, merge it to `main`, then push an annotated tag such as `v0.2.0` with `git tag -a`. The tag must match the version, and its message becomes the release notes, grouped under `### Added`, `### Improved` and `### Fixed`. The release workflow builds all three platforms and publishes them with `checksums.txt`.
 
 ## License
 

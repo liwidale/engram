@@ -20,7 +20,7 @@ RUST="$ROOT/rust-core"
 APP_PKG="$ROOT/EngramApp"
 VENDOR="$APP_PKG/Vendor"
 OUT="$ROOT/build"
-VERSION="0.1.0"
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/rust-core/Cargo.toml" | head -n 1)"
 
 PROFILE=release; NATIVE=0; CORE_ONLY=0; RUN_TESTS=0; INSTALL=0
 for arg in "$@"; do

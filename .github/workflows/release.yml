@@ -3,16 +3,49 @@ name: Release
 on:
   push:
     tags: ['v*']
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - packaging/**
+      - build.sh
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  version:
+    name: Check version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Read version
+        id: version
+        run: |
+          version="$(sed -n 's/^version = "\(.*\)"/\1/p' rust-core/Cargo.toml | head -n 1)"
+          if [[ "$GITHUB_REF" == refs/tags/v* && "${GITHUB_REF_NAME#v}" != "$version" ]]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match version $version in rust-core/Cargo.toml"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" == refs/tags/v* && "$(git cat-file -t "$GITHUB_REF_NAME")" != tag ]]; then
+            echo "::error::$GITHUB_REF_NAME is a lightweight tag. Create it with git tag -a so it carries the release notes."
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
   macos:
     name: Build macOS app
+    needs: version
     runs-on: macos-latest
     steps:
       - name: Check out code
@@ -21,12 +54,16 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-core
       - name: Build universal app
         run: ./build.sh --test
       - name: Package app
         run: |
           mkdir -p dist
-          ditto -c -k --keepParent build/Engram.app "dist/engram-${GITHUB_REF_NAME}-macos-universal.zip"
+          ditto -c -k --keepParent build/Engram.app "dist/engram-v${{ needs.version.outputs.version }}-macos-universal.zip"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -35,12 +72,19 @@ jobs:
 
   windows:
     name: Build Windows app
+    needs: version
     runs-on: windows-latest
+    env:
+      ENGRAM_VERSION: ${{ needs.version.outputs.version }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-core
       - name: Build binaries
         working-directory: rust-core
         run: cargo build --release -p engram-desktop -p engram-mcp
@@ -48,7 +92,7 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force dist | Out-Null
-          $portable = "dist/engram-$env:GITHUB_REF_NAME-windows-x64"
+          $portable = "dist/engram-v$env:ENGRAM_VERSION-windows-x64"
           New-Item -ItemType Directory -Force $portable | Out-Null
           Copy-Item rust-core/target/release/engram.exe, rust-core/target/release/engram-mcp.exe, LICENSE $portable
           Compress-Archive -Path "$portable/*" -DestinationPath "$portable.zip"
@@ -57,8 +101,8 @@ jobs:
         shell: pwsh
         run: |
           choco install innosetup -y --no-progress
-          $env:ENGRAM_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging/windows/engram.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -67,19 +111,24 @@ jobs:
 
   linux:
     name: Build Linux app
+    needs: version
     runs-on: ubuntu-22.04
     steps:
       - name: Check out code
         uses: actions/checkout@v4
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-core
       - name: Install Linux libraries
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
       - name: Build binaries
         working-directory: rust-core
         run: cargo build --release -p engram-desktop -p engram-mcp
       - name: Package archive
-        run: packaging/linux/package.sh "${GITHUB_REF_NAME#v}"
+        run: packaging/linux/package.sh "${{ needs.version.outputs.version }}"
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -88,7 +137,8 @@ jobs:
 
   publish:
     name: Publish release
-    needs: [macos, windows, linux]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [version, macos, windows, linux]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -104,4 +154,9 @@ jobs:
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Engram $GITHUB_REF_NAME" --notes-from-tag --verify-tag
+        run: >
+          gh release create "$GITHUB_REF_NAME" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --title "Engram $GITHUB_REF_NAME"
+          --notes-from-tag
+          --verify-tag
