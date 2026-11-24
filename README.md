@@ -232,6 +232,7 @@ Issues and pull requests are welcome.
 - Every change to `.engram` files goes through an operation in `engram-core`; the apps and the MCP server never write the file directly.
 - User-facing text in the apps goes through the translation layer: `String(localized:)` in Swift and `tr()` in Rust.
 - Work on a kebab-case branch, such as `add-csv-export`, and open a pull request against `main`.
+- To release, push an annotated tag such as `v0.2.0`. The tag message becomes the release notes, grouped under `### Added`, `### Improved` and `### Fixed`.
 
 ## License
 
