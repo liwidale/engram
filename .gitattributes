@@ -1,5 +1,8 @@
 * text=auto eol=lf
 *.png binary
+*.jpg binary
 *.icns binary
 *.ico binary
+*.zip binary
+*.gz binary
 *.engram text eol=lf linguist-language=JSON
