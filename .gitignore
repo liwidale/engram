@@ -21,3 +21,8 @@ xcuserdata/
 
 # macOS
 .DS_Store
+
+# Prompt files
+AGENTS.md
+CLAUDE.md
+tone/
