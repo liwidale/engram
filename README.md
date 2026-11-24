@@ -9,13 +9,15 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/liwidale/engram/releases/latest"><img src="https://img.shields.io/github/v/release/liwidale/engram?label=download&color=4c9dff" alt="Download"></a>
-  <a href="https://github.com/liwidale/engram/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/liwidale/engram/ci.yml?label=tests" alt="Tests"></a>
-  <img src="https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey" alt="macOS, Windows and Linux">
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/liwidale/engram?color=3ad37e" alt="MIT License"></a>
+  <a href="https://github.com/liwidale/engram/actions/workflows/ci.yml"><img src="https://shieldcn.dev/github/ci/liwidale/engram.svg?color=0a0a0a&labelTextColor=8f8f8f&valueColor=ffffff&logoColor=a87855" alt="CI status"></a>
+  <img src="https://shieldcn.dev/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-0a0a0a.svg?labelTextColor=8f8f8f&valueColor=ffffff&logoColor=a87855" alt="Runs on macOS, Windows and Linux">
+  <a href="LICENSE"><img src="https://shieldcn.dev/github/license/liwidale/engram.svg?color=0a0a0a&labelTextColor=8f8f8f&valueColor=ffffff&logoColor=a87855" alt="MIT license"></a>
 </p>
 
-<p align="center">English · <a href="README.ru.md">Русский</a></p>
+<p align="center">
+  <img src=".github/assets/preview.png" width="800" alt="Placeholder with the Engram logo on a dark background, shown until the first screenshot of the app is added.">
+</p>
+<p align="center"><sub>Placeholder until the first screenshot of the app.</sub></p>
 
 AI agents forget. Each new session loses the conventions you agreed on, re-proposes approaches you already rejected and summarizes its own progress in ways that drift a little further every time. Engram keeps that knowledge in a structured, versioned `.engram` file. You edit it in a fast desktop app, and agents read and update it through the Model Context Protocol, so both of you work from the same source of truth.
 
@@ -24,7 +26,6 @@ AI agents forget. Each new session loses the conventions you agreed on, re-propo
 - [Download](#download)
 - [What you get](#what-you-get)
 - [Getting started](#getting-started)
-- [Everyday use](#everyday-use)
 - [Configuration](#configuration)
 - [Privacy](#privacy)
 - [Troubleshooting](#troubleshooting)
@@ -40,15 +41,15 @@ Get the latest version from the [releases page](https://github.com/liwidale/engr
 
 | Platform | File | Requirements |
 | --- | --- | --- |
-| macOS | `Engram-<version>-macos-universal.zip` | macOS 14 or later, Apple silicon or Intel |
-| Windows | `Engram-<version>-windows-x64-setup.exe` or the portable `.zip` | Windows 10 or later, x64 |
-| Linux | `engram-<version>-linux-x86_64.tar.gz` | glibc 2.35 or later, X11 or Wayland |
+| macOS | `engram-v<version>-macos-universal.zip` | macOS 14 or later, Apple silicon or Intel |
+| Windows | `engram-v<version>-windows-x64-setup.exe` or the portable `engram-v<version>-windows-x64.zip` | Windows 10 or later, x64 |
+| Linux | `engram-v<version>-linux-x86_64.tar.gz` | glibc 2.35 or later, X11 or Wayland |
 
 - **macOS:** unzip and move `Engram.app` to `Applications`.
 - **Windows:** run the installer. It installs for your user account and registers the `.engram` file type.
 - **Linux:** unpack the archive and run `./install.sh`. It installs to `~/.local` and registers the `.engram` file type; pass `--prefix /usr/local` with `sudo` for a system-wide install.
 
-Every download includes `engram-mcp`, the MCP server agents connect to.
+Every download includes `engram-mcp`, the MCP server agents connect to. Each release also lists SHA-256 checksums in `checksums.txt`.
 
 ## What you get
 
@@ -75,7 +76,7 @@ You can also create a file from the command line:
 engram-mcp init project.engram --name "My project"
 ```
 
-## Everyday use
+### Keyboard shortcuts
 
 | Shortcut on macOS | On Windows and Linux | Action |
 | --- | --- | --- |
@@ -87,6 +88,8 @@ engram-mcp init project.engram --name "My project"
 | `⇧⌘D` | `Ctrl+Shift+D` | Log decision |
 | `⇧⌘H` | `Ctrl+Shift+H` | Run health audit |
 | `⇧⌘M` | `Ctrl+Shift+M` | Copy MCP config |
+
+### Working with files
 
 - **Open several projects.** Each file opens in its own tab. On Windows and Linux you can also drop `.engram` files onto the window.
 - **Keep the file in Git.** The format is plain JSON with one Markdown line per array item, so diffs and merges stay readable. Add `*.engram.lock` to your `.gitignore`.
@@ -227,7 +230,8 @@ Issues and pull requests are welcome.
 - Run `cargo fmt`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo test --workspace` before you open a pull request.
 - Changes to the file format need a migration path for existing files.
 - Every change to `.engram` files goes through an operation in `engram-core`; the apps and the MCP server never write the file directly.
-- User-facing text goes through the translation layer: `String(localized:)` in Swift and `tr()` in Rust.
+- User-facing text in the apps goes through the translation layer: `String(localized:)` in Swift and `tr()` in Rust.
+- Work on a kebab-case branch, such as `add-csv-export`, and open a pull request against `main`.
 
 ## License
 
