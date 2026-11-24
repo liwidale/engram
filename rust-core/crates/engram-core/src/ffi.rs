@@ -522,10 +522,11 @@ mod tests {
                 c("/Applications/Engram.app/Contents/MacOS/engram-mcp").as_ptr(),
             ));
             assert_eq!(cfg["data"]["server_name"], "engram-my-app");
+            let quoted_file = if cfg!(windows) { "--file \"" } else { "--file '" };
             assert!(cfg["data"]["claude_code_command"]
                 .as_str()
                 .unwrap()
-                .contains("--file '/"));
+                .contains(quoted_file));
             let cfg_json: Value = serde_json::from_str(cfg["data"]["json"].as_str().unwrap()).unwrap();
             assert_eq!(cfg_json["mcpServers"]["engram-my-app"]["args"][0], "--file");
 

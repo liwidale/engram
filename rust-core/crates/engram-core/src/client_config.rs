@@ -124,12 +124,13 @@ fn user_config(client: McpClient) -> Option<PathBuf> {
         } else if cfg!(windows) {
             std::env::var_os("APPDATA")
                 .map(PathBuf::from)
-                .unwrap_or_else(|| home.join("AppData/Roaming"))
-                .join("Claude/claude_desktop_config.json")
+                .unwrap_or_else(|| home.join("AppData").join("Roaming"))
+                .join("Claude")
+                .join("claude_desktop_config.json")
         } else {
             home.join(".config/Claude/claude_desktop_config.json")
         }),
-        McpClient::Windsurf => Some(home.join(".codeium/windsurf/mcp_config.json")),
+        McpClient::Windsurf => Some(home.join(".codeium").join("windsurf").join("mcp_config.json")),
         _ => None,
     }
 }
@@ -154,8 +155,8 @@ fn client_config_for(
     let snippet = serde_json::to_string_pretty(&json!({ client.servers_key(): { name: entry } })).unwrap_or_default();
     let target = match client {
         McpClient::ClaudeCode => Some(repo_root.join(".mcp.json")),
-        McpClient::Cursor => Some(repo_root.join(".cursor/mcp.json")),
-        McpClient::VsCode => Some(repo_root.join(".vscode/mcp.json")),
+        McpClient::Cursor => Some(repo_root.join(".cursor").join("mcp.json")),
+        McpClient::VsCode => Some(repo_root.join(".vscode").join("mcp.json")),
         McpClient::ClaudeDesktop | McpClient::Windsurf => user_config(client),
         McpClient::Generic => None,
     };
@@ -310,7 +311,8 @@ mod tests {
         let get = |c: McpClient| configs.iter().find(|x| x.client == c).unwrap();
         assert!(get(McpClient::VsCode).snippet.contains("\"servers\""));
         assert!(get(McpClient::Cursor).snippet.contains("\"mcpServers\""));
-        assert_eq!(get(McpClient::Cursor).target.as_deref(), Some("/repo/.cursor/mcp.json"));
+        let cursor = display_path(&root.join(".cursor").join("mcp.json"));
+        assert_eq!(get(McpClient::Cursor).target.as_deref(), Some(cursor.as_str()));
         assert_eq!(get(McpClient::ClaudeDesktop).entry.get("type"), None);
         assert_eq!(get(McpClient::VsCode).entry["type"], "stdio");
         assert!(get(McpClient::Generic).target.is_none());
