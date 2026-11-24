@@ -100,20 +100,4 @@ let assets = root.appendingPathComponent(".github/assets")
 try fm.createDirectory(at: assets, withIntermediateDirectories: true)
 try mark(256).write(to: assets.appendingPathComponent("icon.png"))
 
-let preview = bitmap(1600, 1000) { w, h in
-    NSColor(red: 0.04, green: 0.04, blue: 0.04, alpha: 1).setFill()
-    NSRect(x: 0, y: 0, width: w, height: h).fill()
-    let size: CGFloat = 220
-    drawMark(in: NSRect(x: (w - size) / 2, y: h / 2 + 10, width: size, height: size))
-    let title = NSAttributedString(string: "Engram", attributes: [
-        .font: NSFont.systemFont(ofSize: 72, weight: .bold), .foregroundColor: NSColor.white,
-    ])
-    title.draw(at: NSPoint(x: (w - title.size().width) / 2, y: h / 2 - 90))
-    let note = NSAttributedString(string: "Screenshot coming soon", attributes: [
-        .font: NSFont.systemFont(ofSize: 30, weight: .regular),
-        .foregroundColor: NSColor(red: 0.56, green: 0.56, blue: 0.56, alpha: 1),
-    ])
-    note.draw(at: NSPoint(x: (w - note.size().width) / 2, y: h / 2 - 150))
-}
-try png(preview).write(to: assets.appendingPathComponent("preview.png"))
 print("Icons written to \(branding.path)")

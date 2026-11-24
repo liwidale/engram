@@ -58,10 +58,10 @@ struct BridgeTests {
         req.prompt = "p"
         req.promptVars = ["x": "it"]
         let bundle = try e.buildContext(req)
-        #expect(bundle.xml.contains("<entry key=\"payments\""))
+        #expect(bundle.output.contains("<entry key=\"payments\""))
         #expect(bundle.items.contains { $0.itemId == "payments" && $0.included && $0.reason == .ranked })
         #expect(bundle.prompt?.missing == [])
-        #expect(bundle.tokens == EngramEngine.countTokens(bundle.xml))
+        #expect(bundle.tokens == EngramEngine.countTokens(bundle.output))
 
         let report = try e.audit(repoRoot: dir.path)
         #expect(report.issues.contains { $0.kind == "broken_path" && $0.severity == .warning })
@@ -73,9 +73,11 @@ struct BridgeTests {
         #expect(allCyclic)
 
         #expect(try e.renderPrompt("p", variables: ["x": "that"]).text == "Do that")
-        let cfg = try e.mcpConfig(serverBinary: "/Applications/Engram.app/Contents/MacOS/engram-mcp")
-        #expect(cfg.json.contains("\"--file\""))
-        #expect(cfg.serverName == "engram-bridge")
+        let configs = try e.clientConfigs(serverBinary: "/Applications/Engram.app/Contents/MacOS/engram-mcp")
+        #expect(configs.count == MCPClient.allCases.count)
+        let vscode = try #require(configs.first { $0.client == .vsCode })
+        #expect(vscode.snippet.contains("\"servers\"") && vscode.snippet.contains("\"--file\""))
+        #expect(vscode.serverName == "engram-bridge")
         #expect(try e.render(.memory).contains("### payments"))
     }
 
@@ -130,5 +132,59 @@ struct BridgeTests {
         #expect(FuzzyMatch.score("adr", "ADR-0001 · Use Stripe") > FuzzyMatch.score("adr", "Add Architecture Node"))
         #expect(FuzzyMatch.score("cmc", "Copy MCP Config") > 0)
         #expect(FuzzyMatch.score("zzz", "Copy MCP Config") == 0)
+    }
+
+    @Test func undoRedoAndSettingsThroughTheBridge() throws {
+        let e = try fresh("history.engram")
+        let r = try e.apply(.upsertMemory(key: "k", category: .rule, content: "x"))
+        #expect(r.history?.undoLabel == "Edit memory")
+        #expect(r.diff?.changes.first?.kind == .added)
+        let undone = try e.undo()
+        #expect(undone.diff?.changes.first?.kind == .deleted)
+        #expect(try e.document().document.memory.isEmpty)
+        _ = try e.redo()
+        #expect(try e.document().document.memoryEntry("k") != nil)
+
+        try e.apply(.updateSettings([.staleHandoffDays(3), .contextMinScore(0.4), .mcpServerName("mem"), .ignoredDirs(["gen"])]))
+        var settings = try e.document().document.project.settings
+        #expect(settings.staleHandoffDays == 3 && settings.contextMinScore == 0.4 && settings.mcpServerName == "mem")
+        #expect(settings.healthIgnoreDirs == ["gen"])
+        try e.apply(.updateSettings([.staleHandoffDays(nil), .contextMinScore(nil), .mcpServerName(nil), .ignoredDirs([])]))
+        settings = try e.document().document.project.settings
+        #expect(settings == ProjectSettings())
+    }
+
+    @Test func healthFixesRoundTripAsOperations() throws {
+        let e = try fresh("fix.engram")
+        try e.apply(.addNode(id: "api", kind: .service, dependencies: ["ghost"]))
+        try e.apply(.upsertMemory(key: "old", category: .rule, content: "Old"))
+        try e.apply(.upsertMemory(key: "new", category: .rule, content: "New", supersedesKey: "old"))
+        try e.apply(.logDecision(title: "T", context: "c", decision: "d", rejected: [], related: ["old"]))
+        let report = try e.audit(repoRoot: dir.path)
+        let fixes = report.issues.compactMap(\.fix)
+        #expect(fixes.count >= 2)
+        let ops = fixes.compactMap { EngramOp.raw($0.op) }
+        #expect(ops.count == fixes.count)
+        #expect(try ops.first { $0.name == "replace_relation" }?.json().contains("\"from\"") == true)
+        try e.apply(.batch(ops))
+        let after = try e.audit(repoRoot: dir.path)
+        #expect(after.issues.allSatisfy { $0.fix == nil })
+        #expect(try e.document().document.decisions.first?.related == ["new"])
+    }
+
+    @Test func importCandidatesApplyAsOneBatch() throws {
+        let e = try fresh("import.engram")
+        let file = dir.appendingPathComponent("AGENTS.md")
+        try "## Rules\n\n- Never edit generated files.\n- Always run the tests first.\n".write(to: file, atomically: true, encoding: .utf8)
+        let candidates = try e.importInstructions(from: file)
+        #expect(candidates.count == 2)
+        let before = try e.document().revision
+        try e.apply(.importCandidates(memory: candidates, prompts: []))
+        let doc = try e.document()
+        #expect(doc.revision == before + 1)
+        #expect(doc.document.memory.count == 2)
+        let boot = try e.bootstrap()
+        #expect(boot.prompts.count == 3)
+        #expect(try e.repoFiles(matching: "agents") == ["AGENTS.md"])
     }
 }

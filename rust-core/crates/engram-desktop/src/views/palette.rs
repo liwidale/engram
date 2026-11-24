@@ -58,6 +58,8 @@ fn catalog(ws: Option<&Workspace>, recents: &[PathBuf]) -> Vec<Entry> {
     let mut out = vec![
         cmd(tr("Open file"), "Ctrl+O", Action::Open),
         cmd(tr("New project memory"), "Ctrl+N", Action::New),
+        cmd(tr("Settings"), "Ctrl+,", Action::Settings),
+        cmd(tr("Keyboard shortcuts"), "Ctrl+/", Action::Shortcuts),
     ];
     let Some(ws) = ws else {
         out.extend(recents.iter().map(|p| {
@@ -78,9 +80,12 @@ fn catalog(ws: Option<&Workspace>, recents: &[PathBuf]) -> Vec<Entry> {
         cmd(tr("Log decision"), "Ctrl+Shift+D", Action::NewDecision),
         cmd(tr("New prompt"), "", Action::NewPrompt),
         cmd(tr("Add architecture node"), "", Action::NewNode),
-        cmd(tr("Run health audit"), "Ctrl+Shift+H", Action::Audit),
-        cmd(tr("Copy MCP config"), "Ctrl+Shift+M", Action::CopyMcp),
-        cmd(tr("Copy claude mcp add command"), "", Action::CopyMcpCommand),
+        cmd(tr("Run health check"), "Ctrl+Shift+H", Action::Audit),
+        cmd(tr("Connect agent"), "Ctrl+Shift+M", Action::ConnectAgent),
+        cmd(tr("Project settings"), "", Action::ProjectSettings),
+        cmd(tr("Scan the codebase for memory"), "", Action::Scan),
+        cmd(tr("Undo"), "Ctrl+Z", Action::Undo),
+        cmd(tr("Redo"), "Ctrl+Shift+Z", Action::Redo),
         cmd(tr("Copy project memory as Markdown"), "", Action::CopyMemory),
         cmd(tr("Copy agent handoff as XML"), "", Action::CopyHandoff),
         cmd(tr("Save"), "Ctrl+S", Action::Save),

@@ -27,6 +27,10 @@ struct EngramApp: App {
         .defaultSize(width: 1240, height: 800)
         .windowToolbarStyle(.unified(showsTitle: true))
         .commands { EngramCommands() }
+
+        Settings {
+            SettingsView()
+        }
     }
 }
 
@@ -37,7 +41,21 @@ enum WindowID {
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillFinishLaunching(_ notification: Notification) {
+        Pref.register()
+        UserDefaults.standard.set(false, forKey: "NSQuitAlwaysKeepsWindows")
         NSWindow.allowsAutomaticWindowTabbing = true
+        Pref.applyTheme()
+    }
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        MainActor.assumeIsolated {
+            guard UserDefaults.standard.string(forKey: Pref.startup) == "restore" else { return }
+            Pref.sessionURLs.filter { FileManager.default.fileExists(atPath: $0.path) }.forEach(OpenRouter.shared.open)
+        }
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        MainActor.assumeIsolated { OpenRouter.shared.terminating = true }
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
@@ -58,6 +76,20 @@ final class OpenRouter {
     private var openWindow: OpenWindowAction?
     private var dismissWindow: DismissWindowAction?
     private var pending: [URL] = []
+    private var openURLs: [URL] = []
+    var terminating = false
+
+    func didOpen(_ url: URL) {
+        guard !openURLs.contains(url) else { return }
+        openURLs.append(url)
+        Pref.sessionURLs = openURLs
+    }
+
+    func didClose(_ url: URL) {
+        guard !terminating else { return }
+        openURLs.removeAll { $0 == url }
+        Pref.sessionURLs = openURLs
+    }
 
     func register(open: OpenWindowAction, dismiss: DismissWindowAction) {
         openWindow = open
@@ -131,6 +163,17 @@ struct EngramCommands: Commands {
                 Button("Clear menu") { NSDocumentController.shared.clearRecentDocuments(nil) }
             }
         }
+        CommandGroup(replacing: .undoRedo) {
+            Button(workspace?.history.undoLabel.map { String(localized: "Undo \($0)") } ?? String(localized: "Undo")) { undo(redo: false) }
+                .keyboardShortcut("z")
+            Button(workspace?.history.redoLabel.map { String(localized: "Redo \($0)") } ?? String(localized: "Redo")) { undo(redo: true) }
+                .keyboardShortcut("z", modifiers: [.command, .shift])
+        }
+        CommandGroup(replacing: .help) {
+            Button("Keyboard shortcuts") { workspace?.showShortcuts = true }
+                .keyboardShortcut("/")
+                .disabled(workspace == nil)
+        }
         CommandGroup(replacing: .saveItem) {
             Button("Save") { workspace?.saveAll() }
                 .keyboardShortcut("s")
@@ -157,15 +200,28 @@ struct EngramCommands: Commands {
                 .keyboardShortcut("d", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
             Divider()
-            Button("Copy MCP config") { workspace?.copyMCPConfig() }
+            Button("Connect agent…") { workspace?.showConnectAgent = true }
                 .keyboardShortcut("m", modifiers: [.command, .shift])
                 .disabled(workspace == nil)
-            Button("Run health audit") {
+            Button("Project settings…") { workspace?.showProjectSettings = true }
+                .disabled(workspace == nil)
+            Button("Run health check") {
                 workspace?.module = .health
                 workspace?.runAudit()
             }
             .keyboardShortcut("h", modifiers: [.command, .shift])
             .disabled(workspace == nil)
+        }
+    }
+
+    private func undo(redo: Bool) {
+        if let text = NSApp.keyWindow?.firstResponder as? NSTextView, let manager = text.undoManager,
+           redo ? manager.canRedo : manager.canUndo {
+            redo ? manager.redo() : manager.undo()
+        } else if redo {
+            workspace?.redo()
+        } else {
+            workspace?.undo()
         }
     }
 }

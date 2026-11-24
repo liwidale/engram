@@ -1,14 +1,22 @@
-use crate::analysis::{stem, terms};
+use crate::analysis::{stem, terms_cached};
 use crate::graph::Graph;
 use crate::schema::*;
 use crate::time::now_rfc3339;
-use crate::tokens::{count_tokens, TOKENIZER};
+use crate::tokens::{count_tokens, count_tokens_cached, TOKENIZER};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as _;
+use std::sync::Arc;
 
 pub const DEFAULT_MAX_TOKENS: usize = 4000;
-const DEFAULT_MIN_SCORE: f64 = 0.12;
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContextFormat {
+    #[default]
+    Xml,
+    Markdown,
+}
 
 #[derive(Clone, Debug, Default, Deserialize)]
 pub struct Selection {
@@ -40,6 +48,8 @@ pub struct ContextRequest {
     pub auto_rank: bool,
     #[serde(default)]
     pub min_score: Option<f64>,
+    #[serde(default)]
+    pub format: ContextFormat,
 }
 
 impl ContextRequest {
@@ -54,6 +64,7 @@ impl ContextRequest {
             include_handoff: true,
             auto_rank: true,
             min_score: None,
+            format: ContextFormat::Xml,
         }
     }
 }
@@ -105,7 +116,10 @@ pub struct PromptUsage {
 
 #[derive(Clone, Debug, Serialize)]
 pub struct ContextBundle {
-    pub xml: String,
+    pub output: String,
+    pub format: ContextFormat,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub xml: Option<String>,
     pub tokens: usize,
     pub max_tokens: usize,
     pub over_budget: bool,
@@ -120,7 +134,7 @@ struct Candidate<'a> {
     id: &'a str,
     title: String,
     weight: f64,
-    terms: Vec<String>,
+    terms: Arc<Vec<String>>,
     mentions: Vec<&'a str>,
     fragment: String,
     forced: Option<Reason>,
@@ -135,7 +149,7 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
 
     for m in doc.memory.iter().filter(|m| m.is_active()) {
         let text = format!("{} {} {} {}", m.key, m.category.as_str(), m.tags.join(" "), m.body());
-        let t = terms(&text);
+        let t = terms_cached(&text);
         cands.push(Candidate {
             kind: ItemKind::Memory,
             id: &m.key,
@@ -143,7 +157,7 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
             weight: m.category.weight(),
             mentions: mentions(&t, &node_ids),
             terms: t,
-            fragment: memory_xml(m),
+            fragment: memory_fragment(m, req.format),
             forced: if has(&req.include.memory, &m.key) {
                 Some(Reason::Selected)
             } else if m.pinned {
@@ -169,7 +183,7 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
             alts.join(" "),
             d.related.join(" ")
         );
-        let t = terms(&text);
+        let t = terms_cached(&text);
         let mut ms = mentions(&t, &node_ids);
         ms.extend(d.related.iter().map(String::as_str).filter(|r| node_ids.contains(r)));
         cands.push(Candidate {
@@ -179,7 +193,7 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
             weight: 1.25,
             mentions: ms,
             terms: t,
-            fragment: decision_xml(d),
+            fragment: decision_fragment(d, req.format),
             forced: has(&req.include.decisions, &d.id).then_some(Reason::Selected),
             excluded: has(&req.exclude.decisions, &d.id),
         });
@@ -198,8 +212,8 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
             title: n.display_name().to_owned(),
             weight: 0.8,
             mentions: vec![],
-            terms: terms(&text),
-            fragment: node_xml(n, &graph),
+            terms: terms_cached(&text),
+            fragment: node_fragment(n, &graph, req.format),
             forced: has(&req.include.nodes, &n.id).then_some(Reason::Selected),
             excluded: has(&req.exclude.nodes, &n.id),
         });
@@ -214,7 +228,10 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
                 text.push_str(s);
             }
         }
-        terms(&text).into_iter().filter(|t| seen.insert(t.clone())).collect()
+        crate::analysis::terms(&text)
+            .into_iter()
+            .filter(|t| seen.insert(t.clone()))
+            .collect()
     };
     let n_docs = cands.len().max(1) as f64;
     let avg_len = cands.iter().map(|c| c.terms.len()).sum::<usize>() as f64 / n_docs;
@@ -282,7 +299,8 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         scores.push(base * c.weight);
     }
 
-    let handoff_xml = (req.include_handoff && !doc.handoff.is_empty()).then(|| handoff_xml(&doc.handoff));
+    let handoff_part =
+        (req.include_handoff && !doc.handoff.is_empty()).then(|| handoff_fragment(&doc.handoff, req.format));
     let prompt = req
         .prompt
         .as_deref()
@@ -296,7 +314,7 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
                         missing: r.missing,
                         found: true,
                     },
-                    Some(prompt_xml(&p.name, &r.text)),
+                    Some(prompt_fragment(&p.name, &r.text, req.format)),
                 )
             }
             None => (
@@ -312,7 +330,7 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
     let skeleton = assemble(
         doc,
         req,
-        handoff_xml.as_deref(),
+        handoff_part.as_deref(),
         &[],
         &[],
         &[],
@@ -320,9 +338,11 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         prompt_fragment.as_deref(),
     );
     let mut used = count_tokens(&skeleton) + 12;
-    let threshold = req.min_score.unwrap_or(DEFAULT_MIN_SCORE);
+    let threshold = req
+        .min_score
+        .unwrap_or_else(|| doc.project.settings.context_min_score());
 
-    let token_cost: Vec<usize> = cands.iter().map(|c| count_tokens(&c.fragment) + 1).collect();
+    let token_cost: Vec<usize> = cands.iter().map(|c| count_tokens_cached(&c.fragment) + 1).collect();
     let mut order: Vec<usize> = (0..cands.len()).collect();
     order.sort_by(|&a, &b| {
         let forced = |i: usize| cands[i].forced.is_some() && !cands[i].excluded;
@@ -378,13 +398,17 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
                 continue;
             }
             for a in &d.rejected_alternatives {
-                let line = format!(
-                    "    <rejected adr=\"{}\" option=\"{}\">{}</rejected>\n",
-                    attr(&d.id),
-                    attr(&a.option),
-                    esc(&a.reason)
-                );
-                let cost = count_tokens(&line);
+                let line = match req.format {
+                    ContextFormat::Xml => format!(
+                        "    <rejected adr=\"{}\" option=\"{}\">{}</rejected>\n",
+                        attr(&d.id),
+                        attr(&a.option),
+                        esc(&a.reason)
+                    ),
+                    ContextFormat::Markdown if a.reason.is_empty() => format!("- **{}** ({})\n", a.option, d.id),
+                    ContextFormat::Markdown => format!("- **{}** ({}): {}\n", a.option, d.id, a.reason),
+                };
+                let cost = count_tokens_cached(&line);
                 if used + cost <= req.max_tokens {
                     used += cost;
                     dead_ends.push(line);
@@ -393,17 +417,17 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         }
     }
 
-    let xml = assemble(
+    let output = assemble(
         doc,
         req,
-        handoff_xml.as_deref(),
+        handoff_part.as_deref(),
         &mem,
         &nodes,
         &dec,
         &dead_ends,
         prompt_fragment.as_deref(),
     );
-    let tokens = count_tokens(&xml);
+    let tokens = count_tokens(&output);
     let mut items: Vec<RankedItem> = order
         .iter()
         .map(|&i| RankedItem {
@@ -426,7 +450,9 @@ pub fn build_context(doc: &EngramDocument, req: &ContextRequest) -> ContextBundl
         dead_ends: dead_ends.len(),
         items,
         prompt: prompt.map(|(u, _)| u),
-        xml,
+        xml: (req.format == ContextFormat::Xml).then(|| output.clone()),
+        format: req.format,
+        output,
     }
 }
 
@@ -479,6 +505,66 @@ fn assemble(
     dead_ends: &[String],
     prompt: Option<&str>,
 ) -> String {
+    match req.format {
+        ContextFormat::Xml => assemble_xml(doc, req, handoff, memory, nodes, decisions, dead_ends, prompt),
+        ContextFormat::Markdown => assemble_markdown(doc, req, handoff, memory, nodes, decisions, dead_ends, prompt),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_markdown(
+    doc: &EngramDocument,
+    req: &ContextRequest,
+    handoff: Option<&str>,
+    memory: &[&str],
+    nodes: &[&str],
+    decisions: &[&str],
+    dead_ends: &[String],
+    prompt: Option<&str>,
+) -> String {
+    let mut x = String::with_capacity(4096);
+    let _ = writeln!(
+        x,
+        "# Engram context: {} (revision {})\n",
+        doc.project.name, doc.revision
+    );
+    if !req.task.trim().is_empty() {
+        let _ = writeln!(x, "**Task:** {}\n", req.task.trim());
+    }
+    if let Some(h) = handoff {
+        x.push_str(h);
+    }
+    let section = |x: &mut String, title: &str, items: &[&str]| {
+        if !items.is_empty() {
+            let _ = writeln!(x, "## {title}\n");
+            items.iter().for_each(|i| x.push_str(i));
+        }
+    };
+    section(&mut x, "Project memory", memory);
+    section(&mut x, "Architecture", nodes);
+    section(&mut x, "Decisions", decisions);
+    if !dead_ends.is_empty() {
+        x.push_str("## Dead ends\n\nRejected approaches. Do not propose these again.\n\n");
+        dead_ends.iter().for_each(|d| x.push_str(d));
+        x.push('\n');
+    }
+    if let Some(p) = prompt {
+        x.push_str(p);
+    }
+    x
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_xml(
+    doc: &EngramDocument,
+    req: &ContextRequest,
+    handoff: Option<&str>,
+    memory: &[&str],
+    nodes: &[&str],
+    decisions: &[&str],
+    dead_ends: &[String],
+    prompt: Option<&str>,
+) -> String {
     let mut x = String::with_capacity(4096);
     let _ = writeln!(
         x,
@@ -513,6 +599,122 @@ fn assemble(
     }
     x.push_str("</engram_context>\n");
     x
+}
+
+fn memory_fragment(m: &MemoryEntry, format: ContextFormat) -> String {
+    match format {
+        ContextFormat::Xml => memory_xml(m),
+        ContextFormat::Markdown => {
+            let mut x = format!("### {} ({}", m.key, m.category.as_str());
+            if m.pinned {
+                x.push_str(", pinned");
+            }
+            let _ = writeln!(x, ")\n\n{}\n", m.body().trim());
+            if !m.files.is_empty() {
+                let files: Vec<String> = m.files.iter().map(|f| format!("`{f}`")).collect();
+                let _ = writeln!(x, "Files: {}\n", files.join(", "));
+            }
+            x
+        }
+    }
+}
+
+fn decision_fragment(d: &Decision, format: ContextFormat) -> String {
+    match format {
+        ContextFormat::Xml => decision_xml(d),
+        ContextFormat::Markdown => {
+            let mut x = format!("### {}: {} ({})\n\n", d.id, d.title, d.status.as_str());
+            let _ = writeln!(x, "**Context:** {}\n", d.context.trim());
+            let _ = writeln!(x, "**Decision:** {}\n", d.decision.trim());
+            if !d.rejected_alternatives.is_empty() {
+                x.push_str("**Rejected:**\n\n");
+                for a in &d.rejected_alternatives {
+                    if a.reason.is_empty() {
+                        let _ = writeln!(x, "- {}", a.option);
+                    } else {
+                        let _ = writeln!(x, "- {}: {}", a.option, a.reason);
+                    }
+                }
+                x.push('\n');
+            }
+            if !d.consequences.trim().is_empty() {
+                let _ = writeln!(x, "**Consequences:** {}\n", d.consequences.trim());
+            }
+            x
+        }
+    }
+}
+
+fn node_fragment(n: &ArchNode, g: &Graph, format: ContextFormat) -> String {
+    match format {
+        ContextFormat::Xml => node_xml(n, g),
+        ContextFormat::Markdown => {
+            let mut x = format!("- `{}` ({}", n.id, n.kind.as_str());
+            if n.label.as_deref().is_some_and(|l| l != n.id) {
+                let _ = write!(x, ", {}", n.display_name());
+            }
+            x.push(')');
+            if let Some(p) = &n.path {
+                let _ = write!(x, " at `{p}`");
+            }
+            if !n.depends_on.is_empty() {
+                let _ = write!(x, "; depends on {}", n.depends_on.join(", "));
+            }
+            let dependents = g.dependents(&n.id);
+            if !dependents.is_empty() {
+                let _ = write!(x, "; used by {}", dependents.join(", "));
+            }
+            if !n.description.trim().is_empty() {
+                let _ = write!(x, ". {}", n.description.trim());
+            }
+            x.push('\n');
+            x
+        }
+    }
+}
+
+fn handoff_fragment(h: &Handoff, format: ContextFormat) -> String {
+    match format {
+        ContextFormat::Xml => handoff_xml(h),
+        ContextFormat::Markdown => {
+            let mut x = String::from("## Handoff\n\n");
+            let _ = writeln!(x, "**Objective:** {}\n", h.objective);
+            if !h.progress.is_empty() {
+                x.push_str("**Verified progress:**\n\n");
+                for p in &h.progress {
+                    let _ = write!(x, "- [{}] {}", if p.verified { "x" } else { " " }, p.description);
+                    if !p.files.is_empty() {
+                        let files: Vec<String> = p.files.iter().map(|f| format!("`{f}`")).collect();
+                        let _ = write!(x, " ({})", files.join(", "));
+                    }
+                    x.push('\n');
+                }
+                x.push('\n');
+            }
+            let wm = &h.working_memory;
+            for (label, items) in [("Hypotheses", &wm.hypotheses), ("Blockers", &wm.blockers)] {
+                if !items.is_empty() {
+                    let _ = writeln!(x, "**{label}:**\n");
+                    items.iter().for_each(|i| {
+                        let _ = writeln!(x, "- {i}");
+                    });
+                    x.push('\n');
+                }
+            }
+            if !wm.notes.trim().is_empty() {
+                let _ = writeln!(x, "**Notes:** {}\n", wm.notes.trim());
+            }
+            let _ = writeln!(x, "**Next step:** {}\n", h.next_step);
+            x
+        }
+    }
+}
+
+fn prompt_fragment(name: &str, text: &str, format: ContextFormat) -> String {
+    match format {
+        ContextFormat::Xml => prompt_xml(name, text),
+        ContextFormat::Markdown => format!("## Prompt: {name}\n\n{}\n", text.trim()),
+    }
 }
 
 fn memory_xml(m: &MemoryEntry) -> String {
@@ -694,19 +896,19 @@ mod tests {
         assert!(inc.contains(&"ADR-0001"));
         assert!(inc.contains(&"ts-strict"), "pinned always included");
         assert!(!inc.contains(&"db-old"), "superseded never included");
-        assert!(!b.xml.contains("MySQL"));
+        assert!(!b.output.contains("MySQL"));
         assert!(inc.contains(&"ledger-db"), "graph neighbour of a matched node");
         assert!(!inc.contains(&"css"), "irrelevant convention dropped: {inc:?}");
         assert!(b
-            .xml
+            .output
             .contains("<rejected option=\"Braintree\">weaker SCA support</rejected>"));
         assert!(
-            b.xml.contains("<dead_ends"),
+            b.output.contains("<dead_ends"),
             "rejected Elasticsearch still surfaced as a dead end"
         );
-        assert!(b.xml.contains("<handoff"));
+        assert!(b.output.contains("<handoff"));
         assert!(!b.over_budget);
-        assert_eq!(b.tokens, count_tokens(&b.xml));
+        assert_eq!(b.tokens, count_tokens(&b.output));
     }
 
     #[test]
@@ -738,10 +940,10 @@ mod tests {
         let b = build_context(&doc, &req);
         assert_eq!(included(&b), vec!["ADR-0002"]);
         assert!(b
-            .xml
+            .output
             .contains("<prompt name=\"impl\">Implement refunds &amp; &lt;voids&gt; following the context.</prompt>"));
         assert_eq!(b.prompt.as_ref().unwrap().missing.len(), 0);
-        assert!(!b.xml.contains("dead_ends"));
+        assert!(!b.output.contains("dead_ends"));
     }
 
     #[test]
@@ -749,6 +951,39 @@ mod tests {
         let doc = fixture();
         let b = build_context(&doc, &ContextRequest::for_task("", 4000));
         assert!(included(&b).contains(&"payments-idempotency"));
-        assert!(!b.xml.contains("<task>"));
+        assert!(!b.output.contains("<task>"));
+    }
+
+    #[test]
+    fn markdown_format_renders_the_same_selection() {
+        let doc = fixture();
+        let mut req = ContextRequest::for_task("Add refunds to the payments service", 4000);
+        let xml = build_context(&doc, &req);
+        req.format = ContextFormat::Markdown;
+        let md = build_context(&doc, &req);
+        assert!(md.output.starts_with("# Engram context: Shop"), "{}", md.output);
+        assert!(md.output.contains("### payments-idempotency (invariant)"));
+        assert!(md.output.contains("## Dead ends"));
+        assert!(!md.output.contains('<'));
+        assert!(md.xml.is_none());
+        assert_eq!(xml.xml.as_deref(), Some(xml.output.as_str()));
+        assert_eq!(included(&md), included(&xml));
+        assert_eq!(md.tokens, count_tokens(&md.output));
+    }
+
+    #[test]
+    fn project_min_score_applies_when_request_has_none() {
+        let mut doc = fixture();
+        let loose = build_context(&doc, &ContextRequest::for_task("payments", 4000));
+        doc.project.settings.context_min_score = Some(5.0);
+        let strict = build_context(&doc, &ContextRequest::for_task("payments", 4000));
+        assert!(included(&strict).len() < included(&loose).len());
+        assert!(
+            included(&strict).contains(&"ts-strict"),
+            "pinned items ignore the threshold"
+        );
+        let mut req = ContextRequest::for_task("payments", 4000);
+        req.min_score = Some(DEFAULT_CONTEXT_MIN_SCORE);
+        assert_eq!(included(&build_context(&doc, &req)).len(), included(&loose).len());
     }
 }

@@ -321,12 +321,13 @@ impl Server {
                     "max_tokens": bundle.max_tokens,
                     "over_budget": bundle.over_budget,
                     "tokenizer": bundle.tokenizer,
+                    "format": bundle.format,
                     "included": included,
                     "dead_ends": bundle.dead_ends,
                     "prompt": bundle.prompt,
                 });
                 Ok(ToolOutput {
-                    text: bundle.xml,
+                    text: bundle.output,
                     structured: Some(structured),
                 })
             }
@@ -685,6 +686,17 @@ mod tests {
         assert!(xml.starts_with("<engram_context"));
         assert!(xml.contains("Postgres 17") && !xml.contains("Postgres 16"));
         assert!(ctx["structuredContent"]["tokens"].as_u64().unwrap() > 0);
+        assert_eq!(ctx["structuredContent"]["format"], "xml");
+        let md = tool(
+            &mut s,
+            "build_context",
+            json!({"task_description":"add an api endpoint that writes to postgres","format":"markdown"}),
+        );
+        assert!(md["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .starts_with("# Engram context"));
+        assert_eq!(md["structuredContent"]["format"], "markdown");
 
         let p = tool(
             &mut s,

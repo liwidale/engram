@@ -17,12 +17,13 @@ struct DecisionsView: View {
                     EmptyState(
                         symbol: "signpost.right.and.left",
                         title: "Decision log",
-                        message: "Decisions you made, with the alternatives you rejected and why. Agents read them so they never propose a dead end again. Log your first decision to start.",
+                        message: "Record what you decided and which options you ruled out, so nobody proposes them again.",
+                        note: "Agents add records with log_decision.",
                         action: ("Log decision", { composer = .new })
                     )
                 }
             }
-            .frame(minWidth: 460, maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 420, maxWidth: .infinity, maxHeight: .infinity)
         }
         .sheet(item: $composer) { DecisionComposer(model: model, seed: $0) }
         .onChange(of: model.intent) { _, intent in
@@ -61,7 +62,7 @@ struct DecisionsView: View {
                 DecisionRow(decision: d)
                     .tag(d.id)
                     .contextMenu {
-                        Button("Copy as Markdown") { copy(d) }
+                        Button("Copy as Markdown") { model.copy(markdown(d), message: "Copied \(d.id)") }
                         Divider()
                         if d.isActive {
                             Button("Supersede with new decision…") { composer = .supersede(d) }
@@ -70,25 +71,26 @@ struct DecisionsView: View {
                             Button("Reactivate") { model.perform(.updateDecision(id: d.id, status: .active)) }
                         }
                         Divider()
-                        Button("Delete", role: .destructive) {
-                            if model.selectedDecision == d.id { model.selectedDecision = nil }
-                            model.perform(.deleteDecision(id: d.id), success: "Deleted \(d.id)")
+                        Button("Delete…", role: .destructive) {
+                            model.delete(.deleteDecision(id: d.id), title: d.id) {
+                                if model.selectedDecision == d.id { model.selectedDecision = nil }
+                            }
                         }
                     }
             }
             .listStyle(.inset)
             .overlay {
-                if filtered.isEmpty { Text("No decisions").foregroundStyle(.tertiary) }
+                if filtered.isEmpty, model.document?.decisions.isEmpty == false { Text("No decisions match").foregroundStyle(.tertiary) }
             }
         }
     }
 
-    private func copy(_ d: Decision) {
+    private func markdown(_ d: Decision) -> String {
         var s = "## \(d.id): \(d.title)\n\n**Context**\n\n\(d.context)\n\n**Decision**\n\n\(d.decision)\n"
         if !d.rejectedAlternatives.isEmpty {
             s += "\n**Rejected alternatives**\n\n" + d.rejectedAlternatives.map { "- **\($0.option)**: \($0.reason)" }.joined(separator: "\n") + "\n"
         }
-        model.copy(s, message: "Copied \(d.id)")
+        return s
     }
 }
 
@@ -98,20 +100,20 @@ private struct DecisionRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 6) {
-                Text(decision.id).font(.caption.monospaced().weight(.semibold)).foregroundStyle(Theme.accent)
+                Text(verbatim: decision.id).font(.caption.monospaced().weight(.semibold)).foregroundStyle(Theme.accent)
                 Spacer()
                 if decision.isActive {
-                    Chip(text: "Active", color: .green)
+                    Chip(text: "Active", color: Theme.neutral)
                 } else {
-                    Chip(text: decision.supersededBy.map { "→ \($0)" } ?? "Deprecated", color: .secondary)
+                    Chip(text: decision.supersededBy.map { "→ \($0)" } ?? "Deprecated", color: Theme.superseded)
                 }
             }
-            Text(decision.title)
+            Text(verbatim: decision.title)
                 .font(.callout.weight(.medium))
                 .strikethrough(!decision.isActive)
                 .lineLimit(2)
             if !decision.rejectedAlternatives.isEmpty {
-                Text("Rejected: " + decision.rejectedAlternatives.map(\.option).joined(separator: ", "))
+                Text("Rejected: \(decision.rejectedAlternatives.map(\.option).joined(separator: ", "))")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
@@ -122,13 +124,14 @@ private struct DecisionRow: View {
     }
 }
 
-private struct DecisionDraft: Equatable {
+struct DecisionDraft: Equatable {
     var title: String
     var context: String
     var decision: String
     var rejected: [RejectedAlternative]
     var consequences: String
     var related: [String]
+    var files: [String]
 
     init(_ d: Decision) {
         title = d.title
@@ -137,10 +140,19 @@ private struct DecisionDraft: Equatable {
         rejected = d.rejectedAlternatives
         consequences = d.consequences
         related = d.related
+        files = d.files
     }
 
-    var cleanRejected: [RejectedAlternative] {
-        rejected.filter { !$0.option.trimmingCharacters(in: .whitespaces).isEmpty }
+    var normalized: DecisionDraft {
+        var copy = self
+        copy.rejected = rejected.filter { !$0.option.trimmingCharacters(in: .whitespaces).isEmpty }
+        return copy
+    }
+
+    static func == (a: DecisionDraft, b: DecisionDraft) -> Bool {
+        a.title == b.title && a.context == b.context && a.decision == b.decision
+            && a.rejected.filter { !$0.option.isEmpty } == b.rejected.filter { !$0.option.isEmpty }
+            && a.consequences == b.consequences && a.related == b.related && a.files == b.files
     }
 }
 
@@ -148,37 +160,33 @@ private struct DecisionEditor: View {
     var model: WorkspaceModel
     var decision: Decision
     var onSupersede: () -> Void
-    @State private var draft: DecisionDraft
-    @State private var baseline: DecisionDraft
-    @State private var saveDebounce = Debouncer()
+    @State private var draft: EditorDraft<DecisionDraft>
     @State private var preview = false
 
     init(model: WorkspaceModel, decision: Decision, onSupersede: @escaping () -> Void) {
         self.model = model
         self.decision = decision
         self.onSupersede = onSupersede
-        _draft = State(initialValue: DecisionDraft(decision))
-        _baseline = State(initialValue: DecisionDraft(decision))
-    }
-
-    private var dirty: Bool {
-        var a = draft, b = baseline
-        a.rejected = a.cleanRejected
-        b.rejected = b.cleanRejected
-        return a != b
+        _draft = State(initialValue: EditorDraft(DecisionDraft(decision)))
     }
 
     var body: some View {
         VStack(spacing: 0) {
             header
+            if draft.conflict != nil {
+                ConflictBar(onLoad: { draft.loadExternal() }, onKeep: {
+                    draft.keepMine()
+                    _ = commit()
+                })
+            }
             Divider()
             ScrollView {
                 VStack(alignment: .leading, spacing: 14) {
                     if !decision.isActive {
                         HStack(spacing: 8) {
                             Image(systemName: "archivebox.fill")
-                            Text(decision.supersededBy.map { "Deprecated and superseded by \($0). Agents no longer receive this decision." }
-                                ?? "Deprecated. Agents no longer receive this decision.")
+                            Text(decision.supersededBy.map { String(localized: "Deprecated and replaced by \($0). Agents no longer receive this decision.") }
+                                ?? String(localized: "Deprecated. Agents no longer receive this decision."))
                             Spacer()
                             if let by = decision.supersededBy {
                                 Button("Open \(by)") { model.selectedDecision = by }.buttonStyle(.link)
@@ -186,12 +194,15 @@ private struct DecisionEditor: View {
                         }
                         .font(.callout)
                         .padding(10)
-                        .background(Color.orange.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
+                        .background(Theme.superseded.opacity(0.12), in: RoundedRectangle(cornerRadius: 8))
                     }
-                    section("Context", text: $draft.context, placeholder: "What forces and constraints led here?")
-                    section("Decision", text: $draft.decision, placeholder: "What did we decide?")
+                    section("Context", text: $draft.value.context, placeholder: "What forces and constraints led here?")
+                    section("Decision", text: $draft.value.decision, placeholder: "What did you decide?")
                     rejectedCard
-                    section("Consequences", text: $draft.consequences, placeholder: "Trade-offs we accept (optional)")
+                    section("Consequences", text: $draft.value.consequences, placeholder: "Trade-offs you accept (optional)")
+                    Card("Affected files", trailing: AnyView(Text("Checked by Context health").font(.caption).foregroundStyle(.tertiary))) {
+                        FileListEditor(model: model, files: $draft.value.files)
+                    }
                     relatedCard
                 }
                 .padding(18)
@@ -202,43 +213,35 @@ private struct DecisionEditor: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text(dirty ? String(localized: "Edited") : String(localized: "Saved")).font(.caption).foregroundStyle(dirty ? Theme.accent : .secondary)
-                Button("Save") { commit() }.disabled(!dirty)
+                SaveStatus(model: model, dirty: draft.dirty)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 8)
         }
         .onAppear { model.registerCommit("decision") { commit() } }
         .onDisappear {
-            commit()
+            _ = commit()
             model.unregisterCommit("decision")
         }
-        .onChange(of: decision) { _, new in
-            if !dirty {
-                draft = DecisionDraft(new)
-                baseline = draft
-            }
-        }
-        .onChange(of: draft) { _, _ in
-            if dirty { saveDebounce.run(after: .milliseconds(1200)) { commit() } }
-        }
+        .onChange(of: decision) { _, new in draft.sync(external: DecisionDraft(new)) }
+        .onChange(of: draft.value) { draft.scheduleSave { _ = commit() } }
     }
 
     private var header: some View {
         HStack(spacing: 10) {
-            Text(decision.id)
+            Text(verbatim: decision.id)
                 .font(.callout.monospaced().weight(.semibold))
                 .foregroundStyle(Theme.accent)
                 .padding(.horizontal, 7)
                 .padding(.vertical, 3)
                 .background(Theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 5))
-            TextField("Title", text: $draft.title)
+            TextField("Title", text: $draft.value.title)
                 .textFieldStyle(.plain)
                 .font(.title3.weight(.semibold))
                 .strikethrough(!decision.isActive)
             Spacer()
             Picker("Status", selection: Binding(get: { decision.status }, set: { s in
-                commit()
+                _ = commit()
                 model.perform(.updateDecision(id: decision.id, status: s))
             })) {
                 ForEach(DecisionStatus.allCases, id: \.self) { Text($0.title).tag($0) }
@@ -251,9 +254,8 @@ private struct DecisionEditor: View {
                 .help("Preview Markdown")
             Menu {
                 if decision.isActive { Button("Supersede with new decision…", action: onSupersede) }
-                Button("Delete", role: .destructive) {
-                    model.selectedDecision = nil
-                    model.perform(.deleteDecision(id: decision.id), success: "Deleted \(decision.id)")
+                Button("Delete…", role: .destructive) {
+                    model.delete(.deleteDecision(id: decision.id), title: decision.id) { model.selectedDecision = nil }
                 }
             } label: { Image(systemName: "ellipsis.circle") }
                 .menuStyle(.borderlessButton)
@@ -267,7 +269,7 @@ private struct DecisionEditor: View {
     private func section(_ title: String.LocalizationValue, text: Binding<String>, placeholder: String.LocalizationValue) -> some View {
         Card(title) {
             if preview {
-                MarkdownView(text: text.wrappedValue.isEmpty ? "_Empty_" : text.wrappedValue)
+                MarkdownView(text: text.wrappedValue.isEmpty ? String(localized: "_Empty_") : text.wrappedValue)
             } else {
                 CodeEditor(text: text, placeholder: placeholder, minHeight: 64, font: .body)
             }
@@ -276,28 +278,27 @@ private struct DecisionEditor: View {
 
     private var rejectedCard: some View {
         Card("Rejected alternatives", trailing: AnyView(
-            Button {
-                draft.rejected.append(RejectedAlternative(option: "", reason: ""))
-            } label: { Label("Add", systemImage: "plus") }
+            Button { draft.value.rejected.append(RejectedAlternative(option: "", reason: "")) } label: { Label("Add", systemImage: "plus") }
                 .buttonStyle(.borderless)
                 .font(.caption)
         )) {
-            if draft.rejected.isEmpty {
-                Text("Record what you considered and why it lost. Agents treat these as dead ends.")
+            if draft.value.rejected.isEmpty {
+                Text("Note what you considered and why it lost. Agents treat these as dead ends.")
                     .font(.callout)
                     .foregroundStyle(.tertiary)
             }
-            ForEach(draft.rejected.indices, id: \.self) { i in
+            ForEach(draft.value.rejected.indices, id: \.self) { i in
                 HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: "xmark.octagon").foregroundStyle(Theme.color(for: .error).opacity(0.8))
-                    TextField("Option", text: $draft.rejected[i].option)
+                    Image(systemName: "xmark.octagon").foregroundStyle(.secondary)
+                    TextField("Option", text: $draft.value.rejected[i].option)
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 170)
-                    TextField("Why it was rejected", text: $draft.rejected[i].reason, axis: .vertical)
+                    TextField("Why it was rejected", text: $draft.value.rejected[i].reason, axis: .vertical)
                         .textFieldStyle(.roundedBorder)
-                    Button { draft.rejected.remove(at: i) } label: { Image(systemName: "minus.circle") }
+                    Button { draft.value.rejected.remove(at: i) } label: { Image(systemName: "minus.circle") }
                         .buttonStyle(.borderless)
                         .foregroundStyle(.secondary)
+                        .help("Remove")
                 }
             }
         }
@@ -305,13 +306,13 @@ private struct DecisionEditor: View {
 
     private var relatedCard: some View {
         Card("Related") {
-            if !draft.related.isEmpty {
+            if !draft.value.related.isEmpty {
                 FlowLayout(spacing: 6) {
-                    ForEach(draft.related, id: \.self) { r in
+                    ForEach(draft.value.related, id: \.self) { r in
                         HStack(spacing: 4) {
                             Button { navigate(r) } label: { Chip(text: "\(r)", color: color(for: r), symbol: symbol(for: r)) }
                                 .buttonStyle(.plain)
-                            Button { draft.related.removeAll { $0 == r } } label: { Image(systemName: "xmark").font(.caption2) }
+                            Button { draft.value.related.removeAll { $0 == r } } label: { Image(systemName: "xmark").font(.caption2) }
                                 .buttonStyle(.borderless)
                                 .foregroundStyle(.tertiary)
                         }
@@ -321,18 +322,18 @@ private struct DecisionEditor: View {
             Menu("Link memory, node or decision") {
                 let doc = model.document
                 Section("Memory") {
-                    ForEach(doc?.memory.filter { $0.isActive && !draft.related.contains($0.key) } ?? []) { m in
-                        Button(m.key) { draft.related.append(m.key) }
+                    ForEach(doc?.memory.filter { $0.isActive && !draft.value.related.contains($0.key) } ?? []) { m in
+                        Button(m.key) { draft.value.related.append(m.key) }
                     }
                 }
                 Section("Architecture") {
-                    ForEach(doc?.architecture.nodes.filter { !draft.related.contains($0.id) } ?? []) { n in
-                        Button(n.displayName) { draft.related.append(n.id) }
+                    ForEach(doc?.architecture.nodes.filter { !draft.value.related.contains($0.id) } ?? []) { n in
+                        Button(n.displayName) { draft.value.related.append(n.id) }
                     }
                 }
                 Section("Decisions") {
-                    ForEach(doc?.decisions.filter { $0.id != decision.id && !draft.related.contains($0.id) } ?? []) { d in
-                        Button("\(d.id) · \(d.title)") { draft.related.append(d.id) }
+                    ForEach(doc?.decisions.filter { $0.id != decision.id && !draft.value.related.contains($0.id) } ?? []) { d in
+                        Button("\(d.id) · \(d.title)") { draft.value.related.append(d.id) }
                     }
                 }
             }
@@ -344,7 +345,7 @@ private struct DecisionEditor: View {
 
     private func color(for ref: String) -> Color {
         guard let doc = model.document else { return .secondary }
-        if let m = doc.memoryEntry(ref) { return m.isActive ? Theme.color(for: m.category) : .orange }
+        if let m = doc.memoryEntry(ref) { return m.isActive ? Theme.color(for: m.category) : Theme.superseded }
         if let n = doc.node(ref) { return Theme.color(for: n.kind) }
         if doc.decision(ref) != nil { return Theme.accent }
         return Theme.color(for: .warning)
@@ -362,19 +363,19 @@ private struct DecisionEditor: View {
         guard let doc = model.document else { return }
         if doc.memoryEntry(ref) != nil { model.reveal(EntityRef(kind: "memory", id: ref)) }
         else if doc.node(ref) != nil { model.reveal(EntityRef(kind: "node", id: ref)) }
-        else if doc.decision(ref) != nil { model.selectedDecision = doc.decision(ref)!.id }
+        else if let d = doc.decision(ref) { model.selectedDecision = d.id }
     }
 
-    private func commit() {
-        guard dirty else { return }
-        let d = draft
-        let op = EngramOp.updateDecision(
+    @discardableResult
+    private func commit() -> Bool {
+        guard draft.dirty, draft.conflict == nil else { return false }
+        let d = draft.value.normalized
+        draft.markSaved(draft.value)
+        model.perform(.updateDecision(
             id: decision.id, title: d.title, context: d.context, decision: d.decision,
-            rejected: d.cleanRejected, consequences: d.consequences, related: d.related
-        )
-        if model.perform(op) != nil {
-            baseline = d
-        }
+            rejected: d.rejected, consequences: d.consequences, related: d.related, files: d.files
+        ))
+        return true
     }
 }
 
@@ -401,17 +402,11 @@ struct DecisionComposer: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text(supersedes.map { "Supersede \($0)" } ?? "Log decision").font(.title2.weight(.semibold))
-                Spacer()
-                Text(model.document?.decisions.isEmpty == false ? String(localized: "next id assigned on save") : String(localized: "ADR-0001"))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
-            TextField("Title (derived from the decision if empty)", text: $title)
+            Text(supersedes.map { String(localized: "Supersede \($0)") } ?? String(localized: "Log decision")).font(.title2.weight(.semibold))
+            TextField("Title (taken from the decision if empty)", text: $title)
                 .textFieldStyle(.roundedBorder)
-            labeled("Context") { CodeEditor(text: $context, placeholder: "What problem, forces, constraints?", minHeight: 70, font: .body) }
-            labeled("Decision") { CodeEditor(text: $decision, placeholder: "What we will do.", minHeight: 70, font: .body) }
+            labeled("Context") { CodeEditor(text: $context, placeholder: "What problem, forces and constraints?", minHeight: 70, font: .body) }
+            labeled("Decision") { CodeEditor(text: $decision, placeholder: "What you will do.", minHeight: 70, font: .body) }
             labeled("Rejected alternatives") {
                 VStack(spacing: 6) {
                     ForEach(rejected.indices, id: \.self) { i in
@@ -428,7 +423,7 @@ struct DecisionComposer: View {
             HStack {
                 Spacer()
                 Button("Cancel") { dismiss() }.keyboardShortcut(.cancelAction)
-                Button("Log decision") { save() }
+                Button("Log decision", action: save)
                     .keyboardShortcut(.defaultAction)
                     .disabled(context.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || decision.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -438,7 +433,7 @@ struct DecisionComposer: View {
         .onAppear {
             if case .supersede(let d) = seed {
                 supersedes = d.id
-                context = "Supersedes \(d.id) (\(d.title)).\n\n\(d.context)"
+                context = String(localized: "Supersedes \(d.id) (\(d.title)).") + "\n\n" + d.context
                 rejected = [RejectedAlternative(option: d.title, reason: "")]
             }
         }
@@ -460,7 +455,8 @@ struct DecisionComposer: View {
             title: title.isEmpty ? nil : title, context: context, decision: decision, rejected: clean,
             related: supersedes.map { [$0] } ?? [], supersedes: supersedes
         )
-        if let result = model.perform(op), let id = result["id"]?.string {
+        model.perform(op) { result in
+            guard let id = result?["id"]?.string else { return }
             model.selectedDecision = id
             model.show(.success, "Logged \(id)")
             dismiss()

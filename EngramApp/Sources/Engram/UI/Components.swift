@@ -23,7 +23,7 @@ struct Chip: View {
 struct SupersededBadge: View {
     var by: String?
     var body: some View {
-        Chip(text: by.map { "SUPERSEDED → \($0)" } ?? "SUPERSEDED", color: .orange, symbol: "arrow.uturn.right")
+        Chip(text: by.map { "SUPERSEDED → \($0)" } ?? "SUPERSEDED", color: Theme.superseded, symbol: "arrow.uturn.right")
     }
 }
 
@@ -31,6 +31,7 @@ struct EmptyState: View {
     var symbol: String
     var title: String.LocalizationValue
     var message: String.LocalizationValue
+    var note: String.LocalizationValue?
     var action: (title: String.LocalizationValue, run: () -> Void)?
 
     var body: some View {
@@ -44,6 +45,12 @@ struct EmptyState: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 360)
+            if let note {
+                Text(String(localized: note))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                    .multilineTextAlignment(.center)
+            }
             if let action {
                 Button(String(localized: action.title), action: action.run)
                     .buttonStyle(.borderedProminent)
@@ -106,31 +113,6 @@ struct Card<Content: View>: View {
     }
 }
 
-struct CodeEditor: View {
-    @Binding var text: String
-    var placeholder: String.LocalizationValue = ""
-    var minHeight: CGFloat = 120
-    var font: Font = Theme.mono
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            TextEditor(text: $text)
-                .font(font)
-                .scrollContentBackground(.hidden)
-                .padding(.horizontal, 2)
-            if text.isEmpty {
-                Text(String(localized: placeholder))
-                    .font(font)
-                    .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 7)
-                    .padding(.top, 1)
-                    .allowsHitTesting(false)
-            }
-        }
-        .frame(minHeight: minHeight)
-    }
-}
-
 struct LineListEditor: View {
     @Binding var items: [String]
     var placeholder: String.LocalizationValue
@@ -138,7 +120,7 @@ struct LineListEditor: View {
     @State private var synced: [String] = []
 
     var body: some View {
-        CodeEditor(text: $text, placeholder: placeholder, minHeight: 54, font: Theme.monoSmall)
+        CodeEditor(text: $text, placeholder: placeholder, minHeight: 54, font: .monoSmall)
             .onAppear { load() }
             .onChange(of: items) { _, new in if new != synced { load() } }
             .onChange(of: text) { _, new in

@@ -1,7 +1,7 @@
 use crate::i18n::{tr, trf};
 use crate::theme;
 use crate::widgets::{self, chip, muted};
-use crate::workspace::{Module, Workspace};
+use crate::workspace::{Dialog, Module, ToastKind, Workspace};
 use eframe::egui::{self, RichText, Ui};
 use engram_core::health::{HealthReport, Severity};
 use serde_json::json;
@@ -14,39 +14,45 @@ fn severity_title(s: Severity) -> &'static str {
     }
 }
 
-fn kind_title(kind: &impl serde::Serialize) -> String {
-    let raw = serde_json::to_value(kind)
+pub fn kind_title(kind: &str) -> &'static str {
+    match kind {
+        "missing_repo" => tr("Missing repository"),
+        "broken_path" => tr("Broken path"),
+        "zombie_reference" => tr("Zombie reference"),
+        "deprecated_reference" => tr("Deprecated reference"),
+        "deprecated_decision" => tr("Deprecated decision"),
+        "contradiction" => tr("Contradiction"),
+        "rejected_alternative_endorsed" => tr("Rejected alternative endorsed"),
+        "superseded_tag_mismatch" => tr("Superseded tag mismatch"),
+        "dependency_cycle" => tr("Dependency cycle"),
+        "stale_handoff" => tr("Stale handoff"),
+        "empty_content" => tr("Empty content"),
+        _ => tr("Issue"),
+    }
+}
+
+fn kind_name(kind: &impl serde::Serialize) -> String {
+    serde_json::to_value(kind)
         .ok()
         .and_then(|v| v.as_str().map(str::to_owned))
-        .unwrap_or_default();
-    let mut s = raw.replace('_', " ");
-    if let Some(first) = s.get_mut(..1) {
-        first.make_ascii_uppercase();
-    }
-    s
+        .unwrap_or_default()
 }
 
 pub fn show(ui: &mut Ui, ws: &mut Workspace) {
-    let stale = ws.health.as_ref().is_none_or(|r| r.revision != ws.doc.revision);
-    if stale && ws.auditing.is_none() {
-        ws.run_audit(ui.ctx());
-    }
     ui.add_space(6.0);
     ui.horizontal(|ui| {
-        ui.vertical(|ui| {
-            muted(ui, tr("Linked codebase"));
-            ui.label(RichText::new(ws.resolved_repo_root().display().to_string()).monospace());
-        });
+        muted(ui, tr("Codebase"));
+        ui.label(
+            RichText::new(ws.resolved_repo_root().display().to_string())
+                .monospace()
+                .small(),
+        );
+        if ui.link(tr("Change in Project settings")).clicked() {
+            ws.dialog = Some(Dialog::Project(Box::new(ws.project_draft())));
+        }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.add(widgets::primary_button(tr("Run audit"))).clicked() {
-                ws.health = None;
+            if ui.button(tr("Check again")).clicked() {
                 ws.run_audit(ui.ctx());
-            }
-            if ws.doc.project.repo_root.is_some() && ui.button(tr("Use .engram folder")).clicked() {
-                ws.perform_json(json!({"op": "update_project", "repo_root": ""}));
-            }
-            if ui.button(tr("Change folder")).clicked() {
-                choose_root(ws);
             }
             if ws.auditing.is_some() {
                 ui.spinner();
@@ -66,14 +72,11 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace) {
 }
 
 fn summary(ui: &mut Ui, ws: &mut Workspace, r: &HealthReport) {
+    let mut apply: Vec<serde_json::Value> = Vec::new();
+    let mut ignore: Option<String> = None;
     widgets::card(ui, None, |ui| {
         ui.horizontal(|ui| {
-            ui.label(
-                RichText::new(r.score.to_string())
-                    .size(44.0)
-                    .strong()
-                    .color(theme::score(r.score)),
-            );
+            widgets::score_gauge(ui, r.score, 96.0);
             ui.vertical(|ui| {
                 ui.label(
                     RichText::new(match r.grade {
@@ -82,7 +85,8 @@ fn summary(ui: &mut Ui, ws: &mut Workspace, r: &HealthReport) {
                         _ => tr("Critical"),
                     })
                     .size(18.0)
-                    .strong(),
+                    .strong()
+                    .color(theme::score(r.score)),
                 );
                 muted(
                     ui,
@@ -96,9 +100,22 @@ fn summary(ui: &mut Ui, ws: &mut Workspace, r: &HealthReport) {
                     ),
                 );
                 ui.horizontal(|ui| {
-                    chip(ui, trf("{n} errors", &[("n", &r.summary.errors)]), theme::ERROR);
-                    chip(ui, trf("{n} warnings", &[("n", &r.summary.warnings)]), theme::WARNING);
-                    chip(ui, trf("{n} info", &[("n", &r.summary.infos)]), theme::INFO);
+                    for (s, label) in [
+                        (Severity::Error, trf("{n} errors", &[("n", &r.summary.errors)])),
+                        (Severity::Warning, trf("{n} warnings", &[("n", &r.summary.warnings)])),
+                        (Severity::Info, trf("{n} info", &[("n", &r.summary.infos)])),
+                    ] {
+                        let active = ws.health_filter == Some(s);
+                        if widgets::chip_button(ui, label, theme::severity(s), active)
+                            .on_hover_text(tr("Show only this severity"))
+                            .clicked()
+                        {
+                            ws.health_filter = if active { None } else { Some(s) };
+                        }
+                    }
+                    if r.summary.ignored > 0 && ui.link(trf("{n} ignored", &[("n", &r.summary.ignored)])).clicked() {
+                        ws.dialog = Some(Dialog::Project(Box::new(ws.project_draft())));
+                    }
                 });
             });
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -112,6 +129,18 @@ fn summary(ui: &mut Ui, ws: &mut Workspace, r: &HealthReport) {
                     }
                     ui.ctx().copy_text(md);
                 }
+                let fixable: Vec<serde_json::Value> = r
+                    .issues
+                    .iter()
+                    .filter_map(|i| i.fix.as_ref().map(|f| f.op.clone()))
+                    .collect();
+                if fixable.len() > 1
+                    && ui
+                        .add(widgets::primary_button(&trf("Fix all {n}", &[("n", &fixable.len())])))
+                        .clicked()
+                {
+                    apply.push(json!({"op": "batch", "ops": fixable}));
+                }
             });
         });
     });
@@ -123,26 +152,47 @@ fn summary(ui: &mut Ui, ws: &mut Workspace, r: &HealthReport) {
             .color(theme::ERROR),
         );
     }
-    if r.issues.is_empty() {
+    let issues: Vec<_> = r
+        .issues
+        .iter()
+        .filter(|i| ws.health_filter.is_none_or(|f| i.severity == f))
+        .collect();
+    if issues.is_empty() {
         ui.add_space(30.0);
         ui.vertical_centered(|ui| {
-            ui.label(RichText::new(tr("No issues. Agents get clean, current context.")).color(theme::SUCCESS));
+            let text = if r.issues.is_empty() {
+                tr("No issues. Agents get clean, current context.")
+            } else {
+                tr("No issues at this severity.")
+            };
+            ui.label(RichText::new(text).color(theme::SUCCESS));
         });
-        return;
     }
-    for issue in &r.issues {
+    for issue in issues {
         widgets::card(ui, None, |ui| {
             ui.horizontal(|ui| {
                 chip(ui, severity_title(issue.severity), theme::severity(issue.severity));
-                chip(ui, kind_title(&issue.kind), theme::MUTED);
+                chip(ui, kind_title(&kind_name(&issue.kind)), theme::MUTED);
                 muted(ui, format!("{} · {}", issue.subject.kind, issue.subject.id));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui
+                        .link(tr("Ignore"))
+                        .on_hover_text(tr("Hide this issue in future checks"))
+                        .clicked()
+                    {
+                        ignore = Some(issue.id.clone());
+                    }
                     if issue.subject.kind != "project" && ui.link(tr("Open")).clicked() {
                         reveal(ws, issue.subject.kind, &issue.subject.id);
                     }
                     if let Some(rel) = &issue.related {
                         if ui.link(trf("Open {id}", &[("id", &rel.id)])).clicked() {
                             reveal(ws, rel.kind, &rel.id);
+                        }
+                    }
+                    if let Some(fix) = &issue.fix {
+                        if ui.add(widgets::primary_button(&fix.label)).clicked() {
+                            apply.push(fix.op.clone());
                         }
                     }
                 });
@@ -153,9 +203,30 @@ fn summary(ui: &mut Ui, ws: &mut Workspace, r: &HealthReport) {
             }
         });
     }
+    let ctx = ui.ctx().clone();
+    for op in apply {
+        if ws.perform_json(op).is_some() {
+            ws.toast(ToastKind::Success, tr("Fix applied"));
+            ws.run_audit(&ctx);
+        }
+    }
+    if let Some(id) = ignore {
+        let mut ignored = ws.doc.project.settings.health_ignore_issues.clone();
+        if !ignored.contains(&id) {
+            ignored.push(id);
+            if ws
+                .perform_json(json!({"op": "update_project", "health_ignore_issues": ignored}))
+                .is_some()
+            {
+                ws.toast(ToastKind::Success, tr("Issue ignored"));
+                ws.run_audit(&ctx);
+            }
+        }
+    }
 }
 
 pub fn reveal(ws: &mut Workspace, kind: &str, id: &str) {
+    ws.flush();
     match kind {
         "memory" => {
             ws.module = Module::Memory;
@@ -170,30 +241,26 @@ pub fn reveal(ws: &mut Workspace, kind: &str, id: &str) {
         "node" => {
             ws.module = Module::Architecture;
             ws.node = Some(id.to_owned());
-            ws.node_edit = None;
+            ws.node_draft = None;
+        }
+        "prompt" => {
+            ws.module = Module::Prompts;
+            ws.prompt = Some(id.to_owned());
+            ws.prompt_draft = None;
         }
         "handoff" => ws.module = Module::Handoff,
         _ => {}
     }
 }
 
-fn choose_root(ws: &mut Workspace) {
-    let base = ws.store.base_dir();
-    let Some(dir) = rfd::FileDialog::new()
-        .set_directory(ws.resolved_repo_root())
-        .set_title(tr("Choose the codebase this project memory describes"))
-        .pick_folder()
-    else {
-        return;
-    };
-    let base = std::fs::canonicalize(&base).unwrap_or(base);
-    let dir = std::fs::canonicalize(&dir).unwrap_or(dir);
-    let value = if dir == base {
+pub fn relative_root(base: &std::path::Path, dir: &std::path::Path) -> String {
+    let base = std::fs::canonicalize(base).unwrap_or_else(|_| base.to_path_buf());
+    let dir = std::fs::canonicalize(dir).unwrap_or_else(|_| dir.to_path_buf());
+    if dir == base {
         String::new()
     } else if let Ok(rel) = dir.strip_prefix(&base) {
         rel.to_string_lossy().replace('\\', "/")
     } else {
         engram_core::client_config::display_path(&dir)
-    };
-    ws.perform_json(json!({"op": "update_project", "repo_root": value}));
+    }
 }

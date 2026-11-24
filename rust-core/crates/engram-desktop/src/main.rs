@@ -2,7 +2,9 @@
 
 mod app;
 mod i18n;
+mod i18n_ru;
 mod markdown;
+mod settings;
 mod theme;
 mod views;
 mod widgets;

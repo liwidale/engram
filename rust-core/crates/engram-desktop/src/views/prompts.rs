@@ -1,14 +1,13 @@
 use crate::i18n::{tr, trf};
 use crate::theme;
 use crate::widgets::{self, chip, muted};
-use crate::workspace::{Dialog, Draft, PromptDraft, Workspace};
+use crate::workspace::{Dialog, Draft, PromptDraft, ToastKind, Workspace};
 use eframe::egui::{self, RichText, Ui};
 use engram_core::Prompt;
 use serde_json::json;
 use std::collections::{BTreeMap, BTreeSet};
-use std::time::Instant;
 
-fn unique_name(ws: &Workspace, base: &str) -> String {
+pub fn unique_name(ws: &Workspace, base: &str) -> String {
     let mut name = base.to_owned();
     let mut n = 2;
     while ws.doc.prompt(&name).is_some() {
@@ -18,16 +17,22 @@ fn unique_name(ws: &Workspace, base: &str) -> String {
     name
 }
 
-pub fn new_prompt(ws: &mut Workspace) {
+pub fn new_prompt(ws: &mut Workspace, from: Option<&Prompt>) {
     commit(ws);
-    let name = unique_name(ws, "untitled-prompt");
-    if ws
-        .perform_json(json!({"op": "upsert_prompt", "name": name, "body": ""}))
-        .is_some()
-    {
-        ws.prompt = Some(name);
-        ws.prompt_draft = None;
-    }
+    ws.dialog = Some(match from {
+        Some(p) => Dialog::NewPrompt {
+            name: unique_name(ws, &format!("{}-copy", p.name)),
+            category: p.category.clone(),
+            description: p.description.clone(),
+            body: p.body.to_string(),
+        },
+        None => Dialog::NewPrompt {
+            name: String::new(),
+            category: String::new(),
+            description: String::new(),
+            body: String::new(),
+        },
+    });
 }
 
 pub fn show(ui: &mut Ui, ws: &mut Workspace) {
@@ -42,10 +47,11 @@ pub fn show(ui: &mut Ui, ws: &mut Workspace) {
                 if widgets::empty_state(
                 ui,
                 tr("Prompt vault"),
-                tr("Project prompts and templates with {{variable}} placeholders. Agents fetch them with get_prompt."),
+                tr("Reusable prompts for this project. Use {{variable}} placeholders and fill them in when you copy."),
+                Some(tr("Agents fetch prompts with get_prompt.")),
                 Some(tr("New prompt")),
             ) {
-                new_prompt(ws);
+                new_prompt(ws, None);
             }
             }
         }
@@ -61,7 +67,7 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
                 .desired_width(ui.available_width() - 70.0),
         );
         if ui.button(tr("New")).clicked() {
-            new_prompt(ws);
+            new_prompt(ws, None);
         }
     });
     ui.separator();
@@ -73,27 +79,38 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
         .filter(|p| q.is_empty() || p.name.to_lowercase().contains(&q) || p.body.to_lowercase().contains(&q))
         .cloned()
         .collect();
+    let uncategorized = tr("Uncategorized");
     let categories: BTreeSet<String> = prompts
         .iter()
         .map(|p| {
             if p.category.is_empty() {
-                tr("Uncategorized").to_owned()
+                uncategorized.to_owned()
             } else {
                 p.category.clone()
             }
         })
         .collect();
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-        if prompts.is_empty() {
-            muted(ui, tr("No prompts yet"));
+        if prompts.is_empty() && !ws.doc.prompts.is_empty() {
+            muted(ui, tr("No prompts match"));
         }
         for cat in categories {
             ui.add_space(4.0);
             ui.label(RichText::new(&cat).small().strong().color(theme::MUTED));
-            for p in prompts.iter().filter(|p| (if p.category.is_empty() { tr("Uncategorized") } else { &p.category }) == cat) {
+            for p in prompts.iter().filter(|p| {
+                (if p.category.is_empty() {
+                    uncategorized
+                } else {
+                    &p.category
+                }) == cat
+            }) {
                 let selected = ws.prompt.as_deref() == Some(p.name.as_str());
                 let resp = ui.selectable_label(selected, &p.name);
-                let resp = if p.description.is_empty() { resp } else { resp.on_hover_text(&p.description) };
+                let resp = if p.description.is_empty() {
+                    resp
+                } else {
+                    resp.on_hover_text(&p.description)
+                };
                 if resp.clicked() && !selected {
                     commit(ws);
                     ws.prompt = Some(p.name.clone());
@@ -105,16 +122,11 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
                         ui.close();
                     }
                     if ui.button(tr("Duplicate")).clicked() {
-                        let name = unique_name(ws, &format!("{}-copy", p.name));
-                        ws.perform_json(json!({"op": "upsert_prompt", "name": name, "body": p.body.as_str(), "category": p.category, "description": p.description}));
+                        new_prompt(ws, Some(p));
                         ui.close();
                     }
                     if ui.button(tr("Delete")).clicked() {
-                        if ws.prompt.as_deref() == Some(p.name.as_str()) {
-                            ws.prompt = None;
-                            ws.prompt_draft = None;
-                        }
-                        ws.perform_json(json!({"op": "delete_prompt", "name": p.name}));
+                        ws.delete(p.name.clone(), json!({"op": "delete_prompt", "name": p.name}));
                         ui.close();
                     }
                 });
@@ -123,17 +135,15 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
     });
 }
 
-pub fn commit(ws: &mut Workspace) {
-    let Some(draft) = ws.prompt_draft.as_ref().filter(|d| d.dirty()) else {
-        return;
+pub fn commit(ws: &mut Workspace) -> bool {
+    let Some(draft) = ws.prompt_draft.as_mut().filter(|d| d.dirty() && d.conflict.is_none()) else {
+        return false;
     };
     let v = draft.value.clone();
     let name = v.name.trim().to_owned();
     if name.is_empty() {
-        if let Some(d) = ws.prompt_draft.as_mut() {
-            d.value.name = d.base.name.clone();
-        }
-        return;
+        draft.value.name = draft.base.name.clone();
+        return false;
     }
     let rename = (name != v.original).then(|| v.original.clone());
     let op = json!({
@@ -142,13 +152,21 @@ pub fn commit(ws: &mut Workspace) {
     });
     if ws.perform_json(op).is_some() {
         ws.prompt = Some(name.clone());
-        ws.prompt_draft = Some(Draft::new(PromptDraft {
+        let saved = PromptDraft {
             original: name.clone(),
             name,
             ..v
-        }));
-    } else if let Some(d) = ws.prompt_draft.as_mut() {
-        d.value.name = d.base.name.clone();
+        };
+        if let Some(d) = ws.prompt_draft.as_mut() {
+            d.value = saved.clone();
+            d.base = saved;
+        }
+        true
+    } else {
+        if let Some(d) = ws.prompt_draft.as_mut() {
+            d.value.name = d.base.name.clone();
+        }
+        false
     }
 }
 
@@ -162,10 +180,10 @@ pub fn copy_rendered(ctx: &egui::Context, ws: &mut Workspace, name: &str, values
     let r = p.render(&vars);
     ctx.copy_text(r.text);
     if r.missing.is_empty() {
-        ws.toast(crate::workspace::ToastKind::Success, tr("Prompt copied"));
+        ws.toast(ToastKind::Success, tr("Prompt copied"));
     } else {
         ws.toast(
-            crate::workspace::ToastKind::Info,
+            ToastKind::Info,
             trf(
                 "Copied with unfilled variables: {list}",
                 &[("list", &r.missing.join(", "))],
@@ -176,77 +194,84 @@ pub fn copy_rendered(ctx: &egui::Context, ws: &mut Workspace, name: &str, values
 
 fn editor(ui: &mut Ui, ws: &mut Workspace, p: Prompt) {
     if ws.prompt_draft.as_ref().is_none_or(|d| d.base.original != p.name) {
-        ws.prompt_draft = Some(Draft::new(PromptDraft {
-            original: p.name.clone(),
-            name: p.name.clone(),
-            category: p.category.clone(),
-            description: p.description.clone(),
-            body: p.body.to_string(),
-        }));
+        ws.prompt_draft = Some(Draft::new(PromptDraft::from(&p)));
     }
     let mut changed = false;
     let mut copy = false;
     let mut delete = false;
     ui.add_space(6.0);
-    let draft = &mut ws.prompt_draft.as_mut().expect("draft").value;
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(
-                egui::TextEdit::singleline(&mut draft.name)
-                    .font(egui::TextStyle::Monospace)
-                    .desired_width(280.0),
-            )
-            .changed();
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            if ui.button(tr("Delete")).clicked() {
-                delete = true;
-            }
-            if ui.button(tr("Copy template")).clicked() {
-                ui.ctx().copy_text(draft.body.clone());
-            }
-            if ui
-                .add(widgets::primary_button(tr("Copy")))
-                .on_hover_text(tr("Copy the prompt and fill its variables"))
-                .clicked()
-            {
-                copy = true;
-            }
+    {
+        let draft = &mut ws.prompt_draft.as_mut().expect("draft").value;
+        ui.horizontal(|ui| {
+            changed |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut draft.name)
+                        .font(egui::TextStyle::Monospace)
+                        .desired_width(280.0),
+                )
+                .changed();
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if ui.button(tr("Delete")).clicked() {
+                    delete = true;
+                }
+                if ui.button(tr("Copy template")).clicked() {
+                    ui.ctx().copy_text(draft.body.clone());
+                }
+                if ui
+                    .add(widgets::primary_button(tr("Copy")))
+                    .on_hover_text(tr("Copy the prompt and fill its variables"))
+                    .clicked()
+                {
+                    copy = true;
+                }
+            });
         });
-    });
-    ui.horizontal(|ui| {
-        changed |= ui
-            .add(
-                egui::TextEdit::singleline(&mut draft.category)
-                    .hint_text(tr("Category"))
-                    .desired_width(160.0),
-            )
-            .changed();
-        changed |= ui
-            .add(
-                egui::TextEdit::singleline(&mut draft.description)
-                    .hint_text(tr("Short description"))
-                    .desired_width(f32::INFINITY),
-            )
-            .changed();
-    });
+        ui.horizontal(|ui| {
+            changed |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut draft.category)
+                        .hint_text(tr("Category"))
+                        .desired_width(160.0),
+                )
+                .changed();
+            changed |= ui
+                .add(
+                    egui::TextEdit::singleline(&mut draft.description)
+                        .hint_text(tr("Short description"))
+                        .desired_width(f32::INFINITY),
+                )
+                .changed();
+        });
+    }
+    if ws.prompt_draft.as_ref().is_some_and(|d| d.conflict.is_some()) {
+        match widgets::conflict_bar(ui) {
+            Some(true) => ws.prompt_draft.as_mut().expect("draft").load_external(),
+            Some(false) => ws.prompt_draft.as_mut().expect("draft").keep_mine(),
+            None => {}
+        }
+    }
     ui.separator();
     let height = (ui.available_height() - 40.0).max(160.0);
+    let draft = ws.prompt_draft.as_mut().expect("draft");
     egui::ScrollArea::vertical().max_height(height).show(ui, |ui| {
-        changed |= ui
-            .add_sized(
-                [ui.available_width(), height - 6.0],
-                egui::TextEdit::multiline(&mut draft.body)
-                    .code_editor()
-                    .hint_text(tr("Write the prompt. Use {{variable}} for placeholders.")),
-            )
-            .changed();
+        changed |= widgets::code_edit(
+            ui,
+            &mut draft.value.body,
+            tr("Write the prompt. Use {{variable}} for placeholders."),
+            height - 6.0,
+        )
+        .changed();
     });
+    if changed {
+        draft.touch();
+    }
+    draft.refresh_tokens(&draft.value.body.clone());
     let vars = Prompt {
-        body: draft.body.clone().into(),
+        body: draft.value.body.clone().into(),
         ..p.clone()
     }
     .variables();
-    let tokens = engram_core::tokens::count_tokens(&draft.body);
+    let (tokens, dirty) = (draft.tokens, draft.dirty());
     ui.separator();
     ui.horizontal(|ui| {
         if vars.is_empty() {
@@ -256,22 +281,10 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, p: Prompt) {
             chip(ui, v, theme::ACCENT);
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            muted(
-                ui,
-                if ws.prompt_draft.as_ref().is_some_and(Draft::dirty) {
-                    tr("Edited")
-                } else {
-                    tr("Saved")
-                },
-            );
+            widgets::save_status(ui, dirty);
             widgets::tokens(ui, tokens, None);
         });
     });
-    if changed {
-        if let Some(d) = ws.prompt_draft.as_mut() {
-            d.edited_at = Instant::now();
-        }
-    }
     if copy {
         commit(ws);
         let name = ws.prompt.clone().unwrap_or(p.name.clone());
@@ -285,8 +298,6 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, p: Prompt) {
         }
     }
     if delete {
-        ws.prompt = None;
-        ws.prompt_draft = None;
-        ws.perform_json(json!({"op": "delete_prompt", "name": p.name}));
+        ws.delete(p.name.clone(), json!({"op": "delete_prompt", "name": p.name}));
     }
 }

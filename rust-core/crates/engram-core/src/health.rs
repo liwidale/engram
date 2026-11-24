@@ -4,10 +4,10 @@ use crate::schema::*;
 use crate::store::fingerprint;
 use crate::time::{now_rfc3339, now_unix, parse_rfc3339};
 use serde::Serialize;
+use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-const STALE_HANDOFF_DAYS: i64 = 7;
 const MAX_INDEXED_FILES: usize = 60_000;
 const SKIP_DIRS: &[&str] = &[
     ".git",
@@ -111,6 +111,14 @@ pub struct Issue {
     pub path: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub fix: Option<HealthFix>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct HealthFix {
+    pub label: String,
+    pub op: Value,
 }
 
 #[derive(Clone, Debug, Default, Serialize)]
@@ -120,6 +128,7 @@ pub struct HealthSummary {
     pub infos: usize,
     pub paths_checked: usize,
     pub references_checked: usize,
+    pub ignored: usize,
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -151,11 +160,11 @@ impl Auditor<'_> {
         related: Option<EntityRef>,
         path: Option<String>,
         suggestion: Option<String>,
-    ) {
+    ) -> Option<usize> {
         let key = format!("{kind:?}|{}|{}|{:?}|{:?}", subject.kind, subject.id, related, path);
         let id = format!("{:016x}", fingerprint(key.as_bytes()));
         if self.issues.iter().any(|i| i.id == id) {
-            return;
+            return None;
         }
         self.issues.push(Issue {
             id,
@@ -166,7 +175,15 @@ impl Auditor<'_> {
             related,
             path,
             suggestion,
+            fix: None,
         });
+        Some(self.issues.len() - 1)
+    }
+
+    fn fix(&mut self, index: Option<usize>, label: String, op: Value) {
+        if let Some(i) = index {
+            self.issues[i].fix = Some(HealthFix { label, op });
+        }
     }
 }
 
@@ -235,6 +252,15 @@ pub fn audit(doc: &EngramDocument, engram_dir: &Path, override_root: Option<&str
             .cmp(&y.severity)
             .then_with(|| x.subject.id.cmp(&y.subject.id))
     });
+    let ignored = &doc.project.settings.health_ignore_issues;
+    let before = a.issues.len();
+    a.issues.retain(|i| {
+        let kind = serde_json::to_value(i.kind)
+            .ok()
+            .and_then(|v| v.as_str().map(str::to_owned));
+        !ignored.iter().any(|x| *x == i.id || Some(x) == kind.as_ref())
+    });
+    a.summary.ignored = before - a.issues.len();
     for i in &a.issues {
         match i.severity {
             Severity::Error => a.summary.errors += 1,
@@ -347,43 +373,68 @@ fn collect_path_refs(doc: &EngramDocument) -> Vec<PathRef> {
     refs
 }
 
-fn index_file_names(root: &Path) -> HashMap<String, Vec<String>> {
-    let mut index: HashMap<String, Vec<String>> = HashMap::new();
+pub fn repo_files(root: &Path, ignore_dirs: &[String]) -> Vec<String> {
+    let mut files = Vec::new();
     let mut stack = vec![root.to_path_buf()];
-    let mut seen = 0usize;
     while let Some(dir) = stack.pop() {
         let Ok(entries) = std::fs::read_dir(&dir) else { continue };
         for e in entries.flatten() {
             let name = e.file_name().to_string_lossy().into_owned();
             let Ok(ft) = e.file_type() else { continue };
+            let Ok(rel) = e
+                .path()
+                .strip_prefix(root)
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+            else {
+                continue;
+            };
             if ft.is_dir() {
-                if !SKIP_DIRS.contains(&name.as_str()) && !name.starts_with('.') {
+                if !SKIP_DIRS.contains(&name.as_str()) && !name.starts_with('.') && !is_ignored(&rel, ignore_dirs) {
                     stack.push(e.path());
                 }
                 continue;
             }
-            seen += 1;
-            if seen > MAX_INDEXED_FILES {
-                return index;
-            }
-            if let Ok(rel) = e.path().strip_prefix(root) {
-                index.entry(name).or_default().push(rel.to_string_lossy().into_owned());
+            files.push(rel);
+            if files.len() >= MAX_INDEXED_FILES {
+                return files;
             }
         }
+    }
+    files.sort();
+    files
+}
+
+fn is_ignored(rel: &str, ignore_dirs: &[String]) -> bool {
+    ignore_dirs.iter().any(|d| {
+        let d = d.trim_matches('/');
+        !d.is_empty() && (rel == d || rel.starts_with(&format!("{d}/")))
+    })
+}
+
+fn index_file_names(root: &Path, ignore_dirs: &[String]) -> HashMap<String, Vec<String>> {
+    let mut index: HashMap<String, Vec<String>> = HashMap::new();
+    for rel in repo_files(root, ignore_dirs) {
+        let name = rel.rsplit('/').next().unwrap_or(&rel).to_owned();
+        index.entry(name).or_default().push(rel);
     }
     index
 }
 
 fn check_paths(a: &mut Auditor, root: &Path) {
-    let refs = collect_path_refs(a.doc);
+    let ignore = &a.doc.project.settings.health_ignore_dirs;
+    let refs: Vec<PathRef> = collect_path_refs(a.doc)
+        .into_iter()
+        .filter(|r| !is_ignored(r.path.trim_start_matches("./"), ignore))
+        .collect();
     a.summary.paths_checked = refs.len();
     let missing: Vec<&PathRef> = refs.iter().filter(|r| !absolutize(root, &r.path).exists()).collect();
     if missing.is_empty() {
         return;
     }
-    let index = index_file_names(root);
+    let index = index_file_names(root, ignore);
     for r in missing {
         let name = r.path.trim_end_matches('/').rsplit('/').next().unwrap_or(&r.path);
+        let moved_to = index.get(name).filter(|c| c.len() == 1).map(|c| c[0].clone());
         let suggestion = index.get(name).map(|cands| {
             let mut c = cands.clone();
             c.sort_by_key(|p| p.len());
@@ -398,7 +449,7 @@ fn check_paths(a: &mut Auditor, root: &Path) {
             "handoff" => "Handoff progress references a missing file".to_owned(),
             k => format!("{} '{}' references a missing path", capitalize(k), r.subject.id),
         };
-        a.push(
+        let index = a.push(
             if r.explicit { Severity::Error } else { Severity::Warning },
             IssueKind::BrokenPath,
             r.subject.clone(),
@@ -407,6 +458,13 @@ fn check_paths(a: &mut Auditor, root: &Path) {
             Some(r.path.clone()),
             suggestion.or_else(|| Some("Update or remove the reference.".into())),
         );
+        if let Some(to) = moved_to {
+            let op = json!({
+                "op": "replace_path", "subject_kind": r.subject.kind, "subject_id": r.subject.id,
+                "from": r.path, "to": to
+            });
+            a.fix(index, format!("Point to {to}"), op);
+        }
     }
 }
 
@@ -422,7 +480,7 @@ fn check_references(a: &mut Auditor) {
     let graph = Graph::new(&doc.architecture);
     for e in graph.missing_edges() {
         a.summary.references_checked += 1;
-        a.push(
+        let index = a.push(
             Severity::Error,
             IssueKind::ZombieReference,
             EntityRef::node(&e.from),
@@ -434,13 +492,18 @@ fn check_references(a: &mut Auditor) {
             None,
             Some(format!("Add node '{}' or remove the dependency.", e.to)),
         );
+        a.fix(
+            index,
+            format!("Remove dependency on {}", e.to),
+            json!({"op": "remove_dependency", "from": e.from, "to": e.to}),
+        );
     }
     for m in &doc.memory {
         for (field, target) in [("supersedes", &m.supersedes), ("superseded_by", &m.superseded_by)] {
             if let Some(t) = target {
                 a.summary.references_checked += 1;
                 if doc.memory_entry(t).is_none() {
-                    a.push(
+                    let index = a.push(
                         Severity::Warning,
                         IssueKind::ZombieReference,
                         EntityRef::memory(&m.key),
@@ -448,6 +511,11 @@ fn check_references(a: &mut Auditor) {
                         None,
                         None,
                         Some("Clear the link or restore the entry.".into()),
+                    );
+                    a.fix(
+                        index,
+                        "Clear the link".into(),
+                        json!({"op": "unlink_memory", "key": m.key, "link": field}),
                     );
                 }
             }
@@ -459,7 +527,7 @@ fn check_references(a: &mut Auditor) {
             let memory = doc.memory_entry(r);
             let known = memory.is_some() || doc.node(r).is_some() || doc.decision(r).is_some();
             if !known {
-                a.push(
+                let index = a.push(
                     Severity::Warning,
                     IssueKind::ZombieReference,
                     EntityRef::decision(&d.id),
@@ -468,8 +536,13 @@ fn check_references(a: &mut Auditor) {
                     None,
                     Some("Remove the stale relation.".into()),
                 );
+                a.fix(
+                    index,
+                    format!("Remove relation to {r}"),
+                    json!({"op": "replace_relation", "id": d.id, "from": r}),
+                );
             } else if let Some(m) = memory.filter(|m| !m.is_active() && d.is_active()) {
-                a.push(
+                let index = a.push(
                     Severity::Warning,
                     IssueKind::ZombieReference,
                     EntityRef::decision(&d.id),
@@ -488,12 +561,19 @@ fn check_references(a: &mut Auditor) {
                         .as_ref()
                         .map(|b| format!("Point the relation at '{b}'.")),
                 );
+                if let Some(successor) = m.superseded_by.as_ref().filter(|b| doc.memory_entry(b).is_some()) {
+                    a.fix(
+                        index,
+                        format!("Relate to {successor} instead"),
+                        json!({"op": "replace_relation", "id": d.id, "from": r, "to": successor}),
+                    );
+                }
             }
         }
         if let Some(by) = &d.superseded_by {
             a.summary.references_checked += 1;
             if doc.decision(by).is_none() {
-                a.push(
+                let index = a.push(
                     Severity::Warning,
                     IssueKind::ZombieReference,
                     EntityRef::decision(&d.id),
@@ -501,6 +581,11 @@ fn check_references(a: &mut Auditor) {
                     None,
                     None,
                     None,
+                );
+                a.fix(
+                    index,
+                    "Clear the superseded link".into(),
+                    json!({"op": "update_decision", "id": d.id, "superseded_by": ""}),
                 );
             }
         }
@@ -593,7 +678,7 @@ fn check_deprecated(a: &mut Auditor) {
         .iter()
         .filter(|d| d.is_active() && d.superseded_by.is_some())
     {
-        a.push(
+        let index = a.push(
             Severity::Warning,
             IssueKind::DeprecatedDecision,
             EntityRef::decision(&d.id),
@@ -601,6 +686,11 @@ fn check_deprecated(a: &mut Auditor) {
             None,
             None,
             Some("Set its status to deprecated.".into()),
+        );
+        a.fix(
+            index,
+            "Mark deprecated".into(),
+            json!({"op": "update_decision", "id": d.id, "status": "deprecated"}),
         );
     }
 }
@@ -731,7 +821,7 @@ fn check_hygiene(a: &mut Auditor) {
     let doc = a.doc;
     for m in &doc.memory {
         if m.is_active() && has_superseded_tag(&m.content) {
-            a.push(
+            let index = a.push(
                 Severity::Warning,
                 IssueKind::SupersededTagMismatch,
                 EntityRef::memory(&m.key),
@@ -742,6 +832,11 @@ fn check_hygiene(a: &mut Auditor) {
                 None,
                 None,
                 Some("Mark it superseded or remove the tag.".into()),
+            );
+            a.fix(
+                index,
+                "Mark superseded".into(),
+                json!({"op": "set_memory_status", "key": m.key, "status": "superseded"}),
             );
         }
         if !m.is_active() && m.superseded_by.is_none() {
@@ -780,7 +875,7 @@ fn check_hygiene(a: &mut Auditor) {
     }
     if let Some(at) = doc.handoff.updated_at.as_deref().and_then(parse_rfc3339) {
         let days = (now_unix() - at) / 86_400;
-        if days >= STALE_HANDOFF_DAYS && !doc.handoff.is_empty() {
+        if days >= i64::from(doc.project.settings.stale_handoff_days()) && !doc.handoff.is_empty() {
             a.push(
                 Severity::Info,
                 IssueKind::StaleHandoff,
@@ -974,5 +1069,148 @@ mod tests {
         assert_eq!(endorsed.len(), 1);
         assert_eq!(endorsed[0].subject.id, "state");
         assert!(kinds(&r).contains(&IssueKind::SupersededTagMismatch));
+    }
+
+    fn apply_all_fixes(doc: &mut EngramDocument, report: &HealthReport) -> usize {
+        let mut applied = 0;
+        for fix in report.issues.iter().filter_map(|i| i.fix.clone()) {
+            let op: Op = serde_json::from_value(fix.op.clone()).unwrap_or_else(|e| panic!("{}: {e}", fix.op));
+            op.apply(doc).unwrap();
+            applied += 1;
+        }
+        applied
+    }
+
+    #[test]
+    fn fixes_are_valid_ops_that_resolve_their_issues() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join("pkg/auth")).unwrap();
+        fs::write(dir.path().join("pkg/auth/session.go"), "").unwrap();
+        let mut doc = EngramDocument::new("x");
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"auth","category":"rule","content":"See `internal/session.go`.","files":["internal/session.go"]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"add_architecture_node","id":"a","dependencies":["ghost"]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"old","category":"rule","content":"Old"}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"new","category":"rule","content":"New","supersedes_key":"old"}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"log_decision","context":"c","decision":"Pick A","related":["old","missing"]}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"tagged","category":"rule","content":"x"}),
+        );
+        doc.memory_entry_mut("tagged").unwrap().content = "[SUPERSEDED] x".into();
+        apply(&mut doc, json!({"op":"log_decision","context":"c","decision":"Pick B"}));
+        doc.decision_mut("ADR-0002").unwrap().superseded_by = Some("ADR-0001".into());
+        doc.memory_entry_mut("new").unwrap().supersedes = Some("gone".into());
+
+        let before = audit(&doc, dir.path(), None);
+        let fixable = before.issues.iter().filter(|i| i.fix.is_some()).count();
+        assert!(fixable >= 7, "{:#?}", before.issues);
+        assert!(before.issues.iter().any(|i| i
+            .fix
+            .as_ref()
+            .is_some_and(|f| f.label == "Point to pkg/auth/session.go")));
+        assert_eq!(apply_all_fixes(&mut doc, &before), fixable);
+
+        let after = audit(&doc, dir.path(), None);
+        assert!(after.issues.iter().all(|i| i.fix.is_none()), "{:#?}", after.issues);
+        assert_eq!(doc.memory_entry("auth").unwrap().files, vec!["pkg/auth/session.go"]);
+        assert!(doc
+            .memory_entry("auth")
+            .unwrap()
+            .content
+            .contains("`pkg/auth/session.go`"));
+        assert_eq!(doc.decisions[0].related, vec!["new"]);
+        assert!(doc.node("a").unwrap().depends_on.is_empty());
+        assert_eq!(doc.decisions[1].status, DecisionStatus::Deprecated);
+        assert!(after.score > before.score);
+    }
+
+    #[test]
+    fn project_settings_shape_the_audit() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut doc = EngramDocument::new("x");
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"gen","category":"note","content":"Output lives in `generated/api.ts`."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"add_architecture_node","id":"a","dependencies":["ghost"]}),
+        );
+        apply(&mut doc, json!({"op":"update_handoff","objective":"o","next_step":"n"}));
+        doc.handoff.updated_at = Some(crate::time::format_rfc3339(now_unix() - 3 * 86_400));
+
+        let r = audit(&doc, dir.path(), None);
+        assert!(kinds(&r).contains(&IssueKind::BrokenPath));
+        assert!(!kinds(&r).contains(&IssueKind::StaleHandoff));
+        let zombie = r
+            .issues
+            .iter()
+            .find(|i| i.kind == IssueKind::ZombieReference)
+            .unwrap()
+            .id
+            .clone();
+
+        apply(
+            &mut doc,
+            json!({
+                "op":"update_project", "health_ignore_dirs":["generated/"], "health_ignore_issues":[zombie],
+                "stale_handoff_days": 2
+            }),
+        );
+        assert_eq!(doc.project.settings.health_ignore_dirs, vec!["generated"]);
+        let r = audit(&doc, dir.path(), None);
+        assert!(!kinds(&r).contains(&IssueKind::BrokenPath));
+        assert!(!kinds(&r).contains(&IssueKind::ZombieReference));
+        assert!(kinds(&r).contains(&IssueKind::StaleHandoff));
+        assert_eq!(r.summary.ignored, 1);
+
+        apply(
+            &mut doc,
+            json!({"op":"update_project", "health_ignore_issues":["stale_handoff"], "stale_handoff_days": null}),
+        );
+        assert_eq!(doc.project.settings.stale_handoff_days, None);
+        let r = audit(&doc, dir.path(), None);
+        assert!(kinds(&r).contains(&IssueKind::ZombieReference));
+        assert!(!kinds(&r).contains(&IssueKind::StaleHandoff));
+    }
+
+    #[test]
+    fn russian_rules_are_audited() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut doc = EngramDocument::new("x");
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"tabs","category":"convention","content":"Всегда используй табы для отступов."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"spaces","category":"convention","content":"Никогда не используй табы для отступов."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"upsert_memory","key":"state","category":"rule","content":"Всегда используй Redux для состояния."}),
+        );
+        apply(
+            &mut doc,
+            json!({"op":"log_decision","context":"c","decision":"Используем Zustand.","rejected_alternatives":[{"option":"Redux","reason":"много шаблонного кода"}]}),
+        );
+        let r = audit(&doc, dir.path(), None);
+        assert!(kinds(&r).contains(&IssueKind::Contradiction), "{:#?}", r.issues);
+        assert!(kinds(&r).contains(&IssueKind::RejectedAlternativeEndorsed));
     }
 }

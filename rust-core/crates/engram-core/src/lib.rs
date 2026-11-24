@@ -1,10 +1,13 @@
 pub mod analysis;
 pub mod client_config;
 pub mod context;
+pub mod diff;
 pub mod error;
 pub mod ffi;
 pub mod graph;
 pub mod health;
+pub mod history;
+pub mod interop;
 pub mod ops;
 pub mod render;
 pub mod schema;

@@ -119,11 +119,13 @@ struct CommandPalette: View {
             Item(id: "cmd.new-prompt", title: String(localized: "New prompt"), subtitle: String(localized: "Add a template to the prompt vault"), symbol: "text.badge.plus", group: String(localized: "Command")) { m.request(.newPrompt, in: .prompts) },
             Item(id: "cmd.new-node", title: String(localized: "Add architecture node"), subtitle: String(localized: "Module, service, database…"), symbol: "plus.square.on.square", group: String(localized: "Command")) { m.request(.newNode, in: .architecture) },
             Item(id: "cmd.context", title: String(localized: "Build context for a task…"), subtitle: String(localized: "Rank memory against a task description"), symbol: "square.stack.3d.down.right", group: String(localized: "Command")) { m.request(.focusTask, in: .context) },
-            Item(id: "cmd.audit", title: String(localized: "Run health audit"), subtitle: String(localized: "Scan for broken paths, zombies, contradictions"), symbol: "stethoscope", group: String(localized: "Command")) { m.module = .health; m.runAudit() },
-            Item(id: "cmd.mcp", title: String(localized: "Copy MCP config"), subtitle: m.mcpBinaryPath, symbol: "point.3.filled.connected.trianglepath.dotted", group: String(localized: "Command")) { m.copyMCPConfig() },
-            Item(id: "cmd.mcp-cli", title: String(localized: "Copy `claude mcp add` command"), subtitle: String(localized: "Register this file with Claude Code"), symbol: "terminal", group: String(localized: "Command")) {
-                if let c = m.mcpConfig() { m.copy(c.claudeCodeCommand, message: "Claude Code command copied") }
-            },
+            Item(id: "cmd.audit", title: String(localized: "Run health check"), subtitle: String(localized: "Find broken paths, stale references and contradictions"), symbol: "stethoscope", group: String(localized: "Command")) { m.module = .health; m.runAudit() },
+            Item(id: "cmd.connect", title: String(localized: "Connect agent…"), subtitle: String(localized: "Claude Code, Cursor, Windsurf, VS Code and more"), symbol: "point.3.filled.connected.trianglepath.dotted", group: String(localized: "Command")) { m.showConnectAgent = true },
+            Item(id: "cmd.settings", title: String(localized: "Project settings…"), subtitle: String(localized: "Name, codebase folder, health rules, import and export"), symbol: "gearshape", group: String(localized: "Command")) { m.showProjectSettings = true },
+            Item(id: "cmd.scan", title: String(localized: "Scan repository…"), subtitle: String(localized: "Draft memory from build files and agent instructions"), symbol: "wand.and.stars", group: String(localized: "Command")) { m.request(.bootstrap, in: .memory) },
+            Item(id: "cmd.undo", title: m.history.undoLabel.map { String(localized: "Undo \($0)") } ?? String(localized: "Undo"), subtitle: "", symbol: "arrow.uturn.backward", group: String(localized: "Command")) { m.undo() },
+            Item(id: "cmd.redo", title: m.history.redoLabel.map { String(localized: "Redo \($0)") } ?? String(localized: "Redo"), subtitle: "", symbol: "arrow.uturn.forward", group: String(localized: "Command")) { m.redo() },
+            Item(id: "cmd.shortcuts", title: String(localized: "Keyboard shortcuts"), subtitle: "⌘/", symbol: "keyboard", group: String(localized: "Command")) { m.showShortcuts = true },
             Item(id: "cmd.copy-memory", title: String(localized: "Copy project memory as Markdown"), subtitle: "", symbol: "doc.on.doc", group: String(localized: "Command")) {
                 if let s = try? m.engine?.render(.memory) { m.copy(s, message: "Project memory copied") }
             },

@@ -1,12 +1,12 @@
 {
   "format": "engram",
   "version": 1,
-  "revision": 36,
+  "revision": 38,
   "project": {
     "name": "Engram",
     "description": "",
     "created_at": "2026-11-23T08:15:17Z",
-    "updated_at": "2026-11-23T13:30:17Z"
+    "updated_at": "2026-11-24T16:25:05Z"
   },
   "memory": [
     {
@@ -347,7 +347,7 @@
   "prompts": [
     {
       "name": "implement-feature",
-      "category": "Build",
+      "category": "Review",
       "description": "Kick off a feature with project guardrails",
       "body": [
         "You are working on {{project}}.",
@@ -357,7 +357,7 @@
         "Before writing code, read engram://handoff and call build_context. Respect every invariant and never re-propose a rejected alternative. When done, call update_handoff with verified progress and the next atomic step."
       ],
       "created_at": "2026-11-23T08:15:17Z",
-      "updated_at": "2026-11-23T08:15:17Z"
+      "updated_at": "2026-11-24T16:25:05Z"
     },
     {
       "name": "review-diff",

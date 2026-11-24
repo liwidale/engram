@@ -20,6 +20,48 @@ struct EngramOp {
         EngramOp("update_project", ["name": name, "description": description, "repo_root": repoRoot])
     }
 
+    enum Setting {
+        case staleHandoffDays(Int?)
+        case contextMinScore(Double?)
+        case mcpServerName(String?)
+        case ignoredDirs([String])
+        case ignoredIssues([String])
+    }
+
+    static func updateSettings(_ settings: [Setting]) -> EngramOp {
+        var fields: [String: Any?] = [:]
+        for s in settings {
+            switch s {
+            case .staleHandoffDays(let d): fields["stale_handoff_days"] = .some(d.map { $0 as Any } ?? NSNull())
+            case .contextMinScore(let v): fields["context_min_score"] = .some(v.map { $0 as Any } ?? NSNull())
+            case .mcpServerName(let n): fields["mcp_server_name"] = .some(n.map { $0 as Any } ?? NSNull())
+            case .ignoredDirs(let d): fields["health_ignore_dirs"] = d
+            case .ignoredIssues(let i): fields["health_ignore_issues"] = i
+            }
+        }
+        return EngramOp("update_project", fields)
+    }
+
+    static func raw(_ op: JSONValue) -> EngramOp? {
+        guard var dict = op.foundation as? [String: Any], let name = dict.removeValue(forKey: "op") as? String else { return nil }
+        return EngramOp(name, dict)
+    }
+
+    static func batch(_ ops: [EngramOp]) -> EngramOp {
+        EngramOp("batch", ["ops": ops.map { op -> [String: Any] in
+            var d = op.fields
+            d["op"] = op.name
+            return d
+        }])
+    }
+
+    static func importCandidates(memory: [MemoryCandidate], prompts: [PromptCandidate]) -> EngramOp {
+        batch(
+            memory.map { upsertMemory(key: $0.key, category: $0.category, content: $0.content) }
+                + prompts.map { upsertPrompt(name: $0.name, body: $0.body, category: $0.category, description: $0.description) }
+        )
+    }
+
     static func upsertMemory(
         key: String, category: MemoryCategory?, content: String, supersedesKey: String? = nil,
         tags: [String]? = nil, files: [String]? = nil, pinned: Bool? = nil
@@ -57,6 +99,8 @@ struct EngramOp {
     }
 
     static func resetNodePosition(id: String) -> EngramOp { EngramOp("set_node_position", ["id": id]) }
+
+    static let resetAllNodePositions = EngramOp("reset_all_node_positions", [:])
 
     static func addDependency(from: String, to: String) -> EngramOp {
         EngramOp("add_dependency", ["from": from, "to": to])

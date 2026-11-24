@@ -20,7 +20,7 @@ RUST="$ROOT/rust-core"
 APP_PKG="$ROOT/EngramApp"
 VENDOR="$APP_PKG/Vendor"
 OUT="$ROOT/build"
-VERSION="0.1.0"
+VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$ROOT/rust-core/Cargo.toml" | head -n 1)"
 
 PROFILE=release; NATIVE=0; CORE_ONLY=0; RUN_TESTS=0; INSTALL=0
 for arg in "$@"; do
@@ -98,6 +98,15 @@ if [[ $RUN_TESTS -eq 1 ]]; then
   swift test --package-path "$APP_PKG" ${TEST_FLAGS[@]+"${TEST_FLAGS[@]}"}
 fi
 
+if [[ $RUN_TESTS -eq 1 ]]; then
+  log "Checking Russian translations"
+  STRINGS_DIR="$(mktemp -d)"
+  swift build --package-path "$APP_PKG" --product Engram \
+    -Xswiftc -emit-localized-strings -Xswiftc -emit-localized-strings-path -Xswiftc "$STRINGS_DIR"
+  swift "$ROOT/tools/check-strings.swift" "$STRINGS_DIR" "$APP_PKG/Support/ru.lproj/Localizable.strings"
+  rm -rf "$STRINGS_DIR"
+fi
+
 if [[ $CORE_ONLY -eq 1 ]]; then
   log "Rust artifacts ready: $VENDOR/lib, $VENDOR/include, $OUT/engram-mcp"
   exit 0
@@ -122,6 +131,9 @@ printf 'APPL????' > "$APP/Contents/PkgInfo"
 if [[ -f "$APP_PKG/Support/AppIcon.icns" ]]; then
   cp "$APP_PKG/Support/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
+cp "$ROOT/branding/logo.png" "$APP/Contents/Resources/Logo.png"
+cp -R "$APP_PKG/Support/ru.lproj" "$APP/Contents/Resources/ru.lproj"
+mkdir -p "$APP/Contents/Resources/en.lproj"
 plutil -lint "$APP/Contents/Info.plist" >/dev/null
 
 log "Signing (ad-hoc)"
