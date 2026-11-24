@@ -78,7 +78,7 @@ fn list(ui: &mut Ui, ws: &mut Workspace) {
         })
         .cloned()
         .collect();
-    items.sort_by(|a, b| (!a.is_active(), std::cmp::Reverse(&b.id)).cmp(&(!b.is_active(), std::cmp::Reverse(&a.id))));
+    newest_first(&mut items);
     egui::ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
         if items.is_empty() && !ws.doc.decisions.is_empty() {
             muted(ui, tr("No decisions match"));
@@ -390,5 +390,35 @@ fn editor(ui: &mut Ui, ws: &mut Workspace, d: Decision) {
     for op in ops {
         commit(ws);
         ws.perform_json(op);
+    }
+}
+
+fn newest_first(items: &mut [Decision]) {
+    items.sort_by(|a, b| (!a.is_active(), std::cmp::Reverse(&a.id)).cmp(&(!b.is_active(), std::cmp::Reverse(&b.id))));
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn decision(id: &str, status: &str) -> Decision {
+        serde_json::from_value(serde_json::json!({
+            "id": id, "title": id, "status": status, "context": "c", "decision": "d",
+            "created_at": "2026-01-01T00:00:00Z", "updated_at": "2026-01-01T00:00:00Z"
+        }))
+        .unwrap()
+    }
+
+    #[test]
+    fn active_decisions_come_first_newest_on_top() {
+        let mut items = vec![
+            decision("ADR-0001", "active"),
+            decision("ADR-0002", "deprecated"),
+            decision("ADR-0003", "active"),
+            decision("ADR-0004", "deprecated"),
+        ];
+        newest_first(&mut items);
+        let ids: Vec<&str> = items.iter().map(|d| d.id.as_str()).collect();
+        assert_eq!(ids, ["ADR-0003", "ADR-0001", "ADR-0004", "ADR-0002"]);
     }
 }

@@ -54,6 +54,7 @@ pub fn rebuild_if_needed(ws: &mut Workspace) {
         },
     };
     c.bundle = Some(build_context(&ws.doc, &req));
+    c.rendered = None;
     c.stale = false;
 }
 
@@ -234,7 +235,7 @@ fn preview(ui: &mut Ui, ws: &mut Workspace) {
         };
         ui.add(egui::ProgressBar::new(ratio).desired_width(200.0).fill(color));
         if bundle.dead_ends > 0 {
-            chip(ui, trf("{n} dead ends", &[("n", &bundle.dead_ends)]), theme::ERROR).on_hover_text(tr(
+            chip(ui, trf("{n} dead ends", &[("n", &bundle.dead_ends)]), theme::NEUTRAL).on_hover_text(tr(
                 "Rejected alternatives from decisions outside the bundle, listed so agents do not propose them again",
             ));
         }
@@ -262,12 +263,19 @@ fn preview(ui: &mut Ui, ws: &mut Workspace) {
         });
     });
     ui.separator();
+    let key = (ui.visuals().dark_mode, ui.ctx().pixels_per_point());
+    let galley = match &ws.context.rendered {
+        Some((dark, ppp, galley)) if (*dark, *ppp) == key => galley.clone(),
+        _ => {
+            let markdown = bundle.format == engram_core::context::ContextFormat::Markdown;
+            let job = highlight(ui, &bundle.output, markdown);
+            let galley = ui.ctx().fonts_mut(|f| f.layout_job(job));
+            ws.context.rendered = Some((key.0, key.1, galley.clone()));
+            galley
+        }
+    };
     egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-        ui.label(highlight(
-            ui,
-            &bundle.output,
-            bundle.format == engram_core::context::ContextFormat::Markdown,
-        ));
+        ui.label(galley);
     });
 }
 

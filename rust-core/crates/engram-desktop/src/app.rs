@@ -177,9 +177,10 @@ impl EngramApp {
     fn run_in(ctx: &egui::Context, ws: &mut Workspace, action: Action) {
         match action {
             Action::Save => {
-                ws.flush();
-                let rev = ws.doc.revision;
-                ws.toast(ToastKind::Success, trf("Saved, revision {rev}", &[("rev", &rev)]));
+                if ws.flush() {
+                    let rev = ws.doc.revision;
+                    ws.toast(ToastKind::Success, trf("Saved, revision {rev}", &[("rev", &rev)]));
+                }
             }
             Action::Reload => ws.reload(ctx),
             Action::Undo => ws.undo(),
@@ -323,6 +324,13 @@ impl EngramApp {
                 }
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     let Some(ws) = self.tabs.get(self.active) else { return };
+                    if ui
+                        .button("⚙")
+                        .on_hover_text(format!("{} (Ctrl+,)", tr("Settings")))
+                        .clicked()
+                    {
+                        action = Some(Action::Settings);
+                    }
                     if ui.button(tr("Connect agent")).on_hover_text("Ctrl+Shift+M").clicked() {
                         action = Some(Action::ConnectAgent);
                     }

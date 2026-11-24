@@ -40,6 +40,13 @@ pub fn show(ui: &mut Ui, recents: &[PathBuf], logo: &egui::TextureHandle) -> Opt
             ui,
             tr("Ctrl+N new · Ctrl+O open · Ctrl+K commands · drop a .engram file anywhere"),
         );
+        if ui
+            .link(format!("⚙ {}", tr("Settings")))
+            .on_hover_text("Ctrl+,")
+            .clicked()
+        {
+            action = Some(Action::Settings);
+        }
         let existing: Vec<&PathBuf> = recents.iter().filter(|p| p.exists()).collect();
         if !existing.is_empty() {
             ui.add_space(24.0);

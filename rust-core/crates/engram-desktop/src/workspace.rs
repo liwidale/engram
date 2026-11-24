@@ -294,6 +294,7 @@ pub struct ContextState {
     pub prompt: Option<String>,
     pub vars: BTreeMap<String, String>,
     pub bundle: Option<ContextBundle>,
+    pub rendered: Option<(bool, f32, std::sync::Arc<egui::Galley>)>,
     pub stale: bool,
     pub changed_at: Instant,
 }
@@ -312,6 +313,7 @@ impl Default for ContextState {
             prompt: None,
             vars: BTreeMap::new(),
             bundle: None,
+            rendered: None,
             stale: true,
             changed_at: Instant::now(),
         }

@@ -18,7 +18,7 @@ USAGE:
     engram-mcp audit --file <f> [--repo <dir>] [--json]
                                                    Run Context Health (exit 1 on errors)
     engram-mcp context --file <f> --task <text> [--max-tokens <n>] [--markdown]
-                                                   Print a context bundle as XML
+                                                   Print a context bundle as XML or Markdown
     engram-mcp --version | --help
 
 The file can also be given with the ENGRAM_FILE environment variable.";
