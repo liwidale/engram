@@ -1,0 +1,36 @@
+name: Bug report
+description: Something in Engram does not work as expected.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: Describe the problem and include any error message you saw.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+      description: What you expected to happen instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open project.engram
+        2. Go to Context health
+        3. Click Run audit
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Environment
+      description: Engram version, operating system and version, and the MCP client if one is involved.
+      placeholder: Engram v0.1.0, Windows 11 23H2, Claude Code
+    validations:
+      required: true

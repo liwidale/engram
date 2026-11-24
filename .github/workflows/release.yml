@@ -5,87 +5,103 @@ on:
     tags: ['v*']
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   macos:
+    name: Build macOS app
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: aarch64-apple-darwin, x86_64-apple-darwin
       - name: Build universal app
         run: ./build.sh --test
-      - name: Package
+      - name: Package app
         run: |
           mkdir -p dist
-          ditto -c -k --keepParent build/Engram.app "dist/Engram-${GITHUB_REF_NAME#v}-macos-universal.zip"
-      - uses: actions/upload-artifact@v4
+          ditto -c -k --keepParent build/Engram.app "dist/engram-${GITHUB_REF_NAME}-macos-universal.zip"
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: macos
           path: dist/*
 
   windows:
+    name: Build Windows app
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Build
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Build binaries
         working-directory: rust-core
         run: cargo build --release -p engram-desktop -p engram-mcp
-      - name: Package
+      - name: Package portable zip
         shell: pwsh
         run: |
-          $version = $env:GITHUB_REF_NAME.TrimStart('v')
           New-Item -ItemType Directory -Force dist | Out-Null
-          $portable = "dist/Engram-$version-windows-x64"
+          $portable = "dist/engram-$env:GITHUB_REF_NAME-windows-x64"
           New-Item -ItemType Directory -Force $portable | Out-Null
           Copy-Item rust-core/target/release/engram.exe, rust-core/target/release/engram-mcp.exe, LICENSE $portable
           Compress-Archive -Path "$portable/*" -DestinationPath "$portable.zip"
           Remove-Item -Recurse $portable
+      - name: Build installer
+        shell: pwsh
+        run: |
           choco install innosetup -y --no-progress
-          $env:ENGRAM_VERSION = $version
+          $env:ENGRAM_VERSION = $env:GITHUB_REF_NAME.TrimStart('v')
           & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging/windows/engram.iss
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: windows
           path: dist/*
 
   linux:
+    name: Build Linux app
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Install libraries
+      - name: Check out code
+        uses: actions/checkout@v4
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install Linux libraries
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev
-      - name: Build
+      - name: Build binaries
         working-directory: rust-core
         run: cargo build --release -p engram-desktop -p engram-mcp
-      - name: Package
+      - name: Package archive
         run: packaging/linux/package.sh "${GITHUB_REF_NAME#v}"
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
           name: linux
           path: dist/*
 
   publish:
+    name: Publish release
     needs: [macos, windows, linux]
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-      - name: Release notes
-        run: |
-          version="${GITHUB_REF_NAME#v}"
-          awk -v v="$version" '$0 ~ "^## " { if (found) exit; if (index($0, v)) { found=1; next } } found' CHANGELOG.md > notes.md
-      - name: Publish
+      - name: Write checksums
+        working-directory: dist
+        run: sha256sum -- * > checksums.txt
+      - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" dist/* --title "Engram ${GITHUB_REF_NAME#v}" --notes-file notes.md
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --title "Engram $GITHUB_REF_NAME" --notes-from-tag --verify-tag

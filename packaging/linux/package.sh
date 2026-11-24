@@ -4,7 +4,7 @@ set -euo pipefail
 VERSION="${1:?usage: package.sh <version>}"
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TARGET="${CARGO_TARGET_DIR:-$ROOT/rust-core/target}/release"
-NAME="engram-$VERSION-linux-$(uname -m)"
+NAME="engram-v$VERSION-linux-$(uname -m)"
 STAGE="$ROOT/dist/$NAME"
 
 rm -rf "$STAGE"

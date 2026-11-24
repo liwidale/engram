@@ -18,7 +18,7 @@ LicenseFile=..\..\LICENSE
 SetupIconFile=..\..\branding\icons\engram.ico
 UninstallDisplayIcon={app}\engram.exe
 OutputDir=..\..\dist
-OutputBaseFilename=Engram-{#AppVersion}-windows-x64-setup
+OutputBaseFilename=engram-v{#AppVersion}-windows-x64-setup
 
 [Files]
 Source: "..\..\rust-core\target\release\engram.exe"; DestDir: "{app}"; Flags: ignoreversion
