@@ -89,8 +89,10 @@ struct WorkspaceView: View {
 
     @ToolbarContentBuilder
     private var toolbar: some ToolbarContent {
-        ToolbarItemGroup(placement: .primaryAction) {
+        ToolbarItem(placement: .primaryAction) {
             SyncPill(model: model)
+        }
+        ToolbarItemGroup(placement: .primaryAction) {
             Button { model.showPalette = true } label: { Label("Command palette", systemImage: "command") }
                 .help("Command palette (⌘K)")
             Button { model.showConnectAgent = true } label: {
@@ -108,14 +110,12 @@ private struct SyncPill: View {
     var body: some View {
         Button { showActivity.toggle() } label: {
             HStack(spacing: 6) {
-                Circle().fill(color).frame(width: 7, height: 7)
-                Text(verbatim: label).font(.caption).lineLimit(1)
+                Circle().fill(color).frame(width: 6, height: 6)
+                Text(verbatim: label).lineLimit(1)
             }
-            .padding(.horizontal, 8)
-            .padding(.vertical, 3)
-            .background(Theme.subtleFill, in: Capsule())
+            .padding(.horizontal, 4)
+            .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
         .help("Recent changes to this file")
         .popover(isPresented: $showActivity, arrowEdge: .bottom) { ActivityPopover(model: model) }
     }
@@ -253,6 +253,7 @@ private struct BannerView: View {
 
 private struct Sidebar: View {
     @Bindable var model: WorkspaceModel
+    @State private var footerHover = false
 
     var body: some View {
         List(selection: Binding(get: { model.module }, set: { if let m = $0 { model.module = m } })) {
@@ -317,24 +318,35 @@ private struct Sidebar: View {
     }
 
     private var footer: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Divider().padding(.bottom, 4)
-            HStack(spacing: 6) {
-                Image(systemName: "doc.text").foregroundStyle(.secondary)
-                Text(verbatim: model.url.lastPathComponent).lineLimit(1).truncationMode(.middle)
-                Spacer()
-                Button { model.showProjectSettings = true } label: { Image(systemName: "gearshape") }
-                    .buttonStyle(.borderless)
-                    .help("Project settings")
+        Button { model.showProjectSettings = true } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "doc.text")
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(verbatim: model.url.lastPathComponent)
+                        .font(.callout.weight(.medium))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Text(verbatim: model.resolvedRepoRoot.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                Spacer(minLength: 4)
+                Image(systemName: "gearshape")
+                    .foregroundStyle(footerHover ? .primary : .tertiary)
             }
-            .font(.caption)
-            Text(verbatim: model.resolvedRepoRoot.path.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                .font(.caption2)
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .background(footerHover ? Theme.hoverFill : .clear, in: RoundedRectangle(cornerRadius: Theme.radius))
+            .contentShape(RoundedRectangle(cornerRadius: Theme.radius))
         }
-        .padding(.horizontal, 14)
+        .buttonStyle(.plain)
+        .onHover { footerHover = $0 }
+        .help("Project settings")
+        .padding(.horizontal, 10)
         .padding(.bottom, 10)
         .contextMenu {
             Button("Project settings…") { model.showProjectSettings = true }
