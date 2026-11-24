@@ -454,6 +454,7 @@ pub fn rank_files(files: &[String], query: &str, limit: usize) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     unsafe fn take(p: *mut c_char) -> Value {
         assert!(!p.is_null());
@@ -586,7 +587,8 @@ mod tests {
                 c("cursor").as_ptr(),
                 c("/bin/engram-mcp").as_ptr(),
             ));
-            assert!(written["data"]["path"].as_str().unwrap().ends_with(".cursor/mcp.json"));
+            let path = PathBuf::from(written["data"]["path"].as_str().unwrap());
+            assert!(path.ends_with(Path::new(".cursor").join("mcp.json")), "{path:?}");
             assert_eq!(
                 take(engram_write_client_config(h, c("nope").as_ptr(), c("x").as_ptr()))["error"]["code"],
                 "invalid"
