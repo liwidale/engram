@@ -37,9 +37,12 @@ jobs:
             echo "::error::Tag $GITHUB_REF_NAME does not match version $version in rust-core/Cargo.toml"
             exit 1
           fi
-          if [[ "$GITHUB_REF" == refs/tags/v* && "$(git cat-file -t "$GITHUB_REF_NAME")" != tag ]]; then
-            echo "::error::$GITHUB_REF_NAME is a lightweight tag. Create it with git tag -a so it carries the release notes."
-            exit 1
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            git fetch --force origin "$GITHUB_REF:$GITHUB_REF"
+            if [[ "$(git cat-file -t "$GITHUB_REF_NAME")" != tag ]]; then
+              echo "::error::$GITHUB_REF_NAME is a lightweight tag. Create it with git tag -a so it carries the release notes."
+              exit 1
+            fi
           fi
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
