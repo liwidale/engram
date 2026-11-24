@@ -223,7 +223,9 @@ fn summary(e: &MemoryEntry) -> String {
         .map(|l| l.trim_start_matches(['#', '-', '*', '>', ' ']))
         .find(|l| !l.is_empty())
         .unwrap_or("")
-        .to_owned()
+        .replace("**", "")
+        .replace("__", "")
+        .replace('`', "")
 }
 
 pub fn commit(ws: &mut Workspace) -> bool {

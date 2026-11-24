@@ -221,64 +221,71 @@ private struct MemoryEditor: View {
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            Image(systemName: entry.category.symbol)
-                .foregroundStyle(Theme.color(for: entry.category))
-                .font(.title3)
-            TextField("key", text: $keyDraft)
-                .textFieldStyle(.plain)
-                .font(.system(.title3, design: .monospaced).weight(.semibold))
-                .onSubmit(rename)
-                .frame(maxWidth: 320)
-            if !entry.isActive { SupersededBadge(by: entry.supersededBy) }
-            Spacer()
-            Picker("Category", selection: Binding(get: { entry.category }, set: { c in
-                _ = commit()
-                model.perform(.upsertMemory(key: entry.key, category: c, content: draft.value.content))
-            })) {
-                ForEach(MemoryCategory.allCases) { Label($0.singular, systemImage: $0.symbol).tag($0) }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                Image(systemName: entry.category.symbol)
+                    .foregroundStyle(Theme.color(for: entry.category))
+                    .font(.title3)
+                TextField("key", text: $keyDraft)
+                    .textFieldStyle(.plain)
+                    .font(.system(.title3, design: .monospaced).weight(.semibold))
+                    .onSubmit(rename)
+                if !entry.isActive { SupersededBadge(by: entry.supersededBy) }
+                moreMenu
             }
-            .labelsHidden()
-            .fixedSize()
-            Toggle(isOn: Binding(get: { entry.pinned }, set: { p in
-                _ = commit()
-                model.perform(.upsertMemory(key: entry.key, category: nil, content: draft.value.content, pinned: p))
-            })) {
-                Image(systemName: entry.pinned ? "pin.fill" : "pin")
-            }
-            .toggleStyle(.button)
-            .help("Pinned entries are included in every built context")
-            Picker("Mode", selection: $modeRaw) {
-                Text("Edit").tag(Mode.edit.rawValue)
-                Text("Split").tag(Mode.split.rawValue)
-                Text("Preview").tag(Mode.preview.rawValue)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .fixedSize()
-            Menu {
-                Button("Copy as Markdown") { model.copy("### \(entry.key)\n\n\(draft.value.content)", message: "Copied \(entry.key)") }
-                if entry.isActive {
-                    Button("Supersede with new entry…", action: onSupersede)
-                    Button("Retire as superseded") {
-                        _ = commit()
-                        model.perform(.setMemoryStatus(key: entry.key, .superseded))
-                    }
-                } else {
-                    Button("Restore as active") { model.perform(.setMemoryStatus(key: entry.key, .active)) }
+            HStack(spacing: 10) {
+                Picker("Category", selection: Binding(get: { entry.category }, set: { c in
+                    _ = commit()
+                    model.perform(.upsertMemory(key: entry.key, category: c, content: draft.value.content))
+                })) {
+                    ForEach(MemoryCategory.allCases) { Label($0.singular, systemImage: $0.symbol).tag($0) }
                 }
-                Divider()
-                Button("Delete…", role: .destructive) {
-                    model.delete(.deleteMemory(key: entry.key), title: entry.key) { model.selectedMemory = nil }
+                .labelsHidden()
+                .fixedSize()
+                Toggle(isOn: Binding(get: { entry.pinned }, set: { p in
+                    _ = commit()
+                    model.perform(.upsertMemory(key: entry.key, category: nil, content: draft.value.content, pinned: p))
+                })) {
+                    Image(systemName: entry.pinned ? "pin.fill" : "pin")
                 }
-            } label: {
-                Image(systemName: "ellipsis.circle")
+                .toggleStyle(.button)
+                .help("Pinned entries are included in every built context")
+                Spacer(minLength: 0)
+                Picker("Mode", selection: $modeRaw) {
+                    Text("Edit").tag(Mode.edit.rawValue)
+                    Text("Split").tag(Mode.split.rawValue)
+                    Text("Preview").tag(Mode.preview.rawValue)
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .fixedSize()
             }
-            .menuStyle(.borderlessButton)
-            .fixedSize()
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
+    }
+
+    private var moreMenu: some View {
+        Menu {
+            Button("Copy as Markdown") { model.copy("### \(entry.key)\n\n\(draft.value.content)", message: "Copied \(entry.key)") }
+            if entry.isActive {
+                Button("Supersede with new entry…", action: onSupersede)
+                Button("Retire as superseded") {
+                    _ = commit()
+                    model.perform(.setMemoryStatus(key: entry.key, .superseded))
+                }
+            } else {
+                Button("Restore as active") { model.perform(.setMemoryStatus(key: entry.key, .active)) }
+            }
+            Divider()
+            Button("Delete…", role: .destructive) {
+                model.delete(.deleteMemory(key: entry.key), title: entry.key) { model.selectedMemory = nil }
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
     }
 
     @ViewBuilder

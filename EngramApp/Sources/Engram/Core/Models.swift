@@ -138,8 +138,10 @@ struct MemoryEntry: Decodable, Hashable, Identifiable {
 
     var summary: String {
         let body = content.replacingOccurrences(of: "[SUPERSEDED]", with: "", options: .caseInsensitive)
-        return body.split(separator: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#-*> \t")) }
-            .first { !$0.isEmpty } ?? String(localized: "Empty")
+        let line = body.split(separator: "\n").map { $0.trimmingCharacters(in: CharacterSet(charactersIn: "#-*> \t")) }
+            .first { !$0.isEmpty }
+        guard let line else { return String(localized: "Empty") }
+        return ["**", "__", "`"].reduce(line) { $0.replacingOccurrences(of: $1, with: "") }
     }
 }
 
