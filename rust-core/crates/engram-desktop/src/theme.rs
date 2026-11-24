@@ -3,7 +3,7 @@ use eframe::egui::{self, Color32, CornerRadius, Stroke, Vec2};
 use engram_core::health::Severity;
 use engram_core::{MemoryCategory, NodeKind};
 
-pub const ACCENT: Color32 = Color32::from_rgb(168, 120, 85);
+pub const ACCENT: Color32 = Color32::from_rgb(97, 102, 242);
 pub const ERROR: Color32 = Color32::from_rgb(214, 84, 76);
 pub const WARNING: Color32 = Color32::from_rgb(214, 152, 56);
 pub const SUCCESS: Color32 = Color32::from_rgb(84, 168, 112);

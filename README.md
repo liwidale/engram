@@ -9,9 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/liwidale/engram/actions/workflows/ci.yml"><img src="https://shieldcn.dev/github/ci/liwidale/engram.svg?color=0a0a0a&labelTextColor=8f8f8f&valueColor=ffffff&logoColor=a87855" alt="CI status"></a>
-  <img src="https://shieldcn.dev/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-0a0a0a.svg?labelTextColor=8f8f8f&valueColor=ffffff&logoColor=a87855" alt="Runs on macOS, Windows and Linux">
-  <a href="LICENSE"><img src="https://shieldcn.dev/github/license/liwidale/engram.svg?color=0a0a0a&labelTextColor=8f8f8f&valueColor=ffffff&logoColor=a87855" alt="MIT license"></a>
+  <a href="https://github.com/liwidale/engram/actions/workflows/ci.yml"><img src="https://shieldcn.dev/github/ci/liwidale/engram.svg?color=0a0a0a&labelTextColor=8f8f8f&valueColor=ffffff&logoColor=6166f2" alt="CI status"></a>
+  <img src="https://shieldcn.dev/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-0a0a0a.svg?labelTextColor=8f8f8f&valueColor=ffffff&logoColor=6166f2" alt="Runs on macOS, Windows and Linux">
+  <a href="LICENSE"><img src="https://shieldcn.dev/github/license/liwidale/engram.svg?color=0a0a0a&labelTextColor=8f8f8f&valueColor=ffffff&logoColor=6166f2" alt="MIT license"></a>
 </p>
 
 <p align="center">

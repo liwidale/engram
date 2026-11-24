@@ -1,7 +1,7 @@
 import SwiftUI
 
 enum Theme {
-    static let accent = Color(red: 0.659, green: 0.471, blue: 0.333)
+    static let accent = Color(red: 0.38, green: 0.40, blue: 0.95)
     static let radius: CGFloat = 8
     static let cardRadius: CGFloat = 10
     static let mono = Font.system(.body, design: .monospaced)
