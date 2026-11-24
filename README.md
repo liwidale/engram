@@ -15,9 +15,9 @@
 </p>
 
 <p align="center">
-  <img src=".github/assets/preview.png" width="800" alt="Placeholder with the Engram logo on a dark background, shown until the first screenshot of the app is added.">
+  <img src=".github/assets/preview.png" width="800" alt="The Engram macOS app showing project memory: categorized entries on the left and a pinned invariant rendered as Markdown on the right.">
 </p>
-<p align="center"><sub>Placeholder until the first screenshot of the app.</sub></p>
+<p align="center"><sub>Project memory in the macOS app, with an invariant pinned to every agent context.</sub></p>
 
 AI agents forget. Each new session loses the conventions you agreed on, re-proposes approaches you already rejected and summarizes its own progress in ways that drift a little further every time. Engram keeps that knowledge in a structured, versioned `.engram` file. You edit it in a fast desktop app, and agents read and update it through the Model Context Protocol, so both of you work from the same source of truth.
 
