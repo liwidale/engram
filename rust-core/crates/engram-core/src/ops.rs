@@ -9,14 +9,7 @@ use serde_json::{json, Value};
 #[derive(Clone, Debug, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Op {
-    UpdateProject {
-        #[serde(default)]
-        name: Option<String>,
-        #[serde(default)]
-        description: Option<String>,
-        #[serde(default)]
-        repo_root: Option<String>,
-    },
+    UpdateProject(UpdateProject),
     UpsertMemory(UpsertMemory),
     RenameMemory {
         key: String,
@@ -56,6 +49,61 @@ pub enum Op {
         name: String,
     },
     UpdateHandoff(UpdateHandoff),
+    ResetAllNodePositions,
+    ReplacePath {
+        subject_kind: String,
+        subject_id: String,
+        from: String,
+        to: String,
+    },
+    UnlinkMemory {
+        key: String,
+        link: MemoryLink,
+    },
+    ReplaceRelation {
+        id: String,
+        from: String,
+        #[serde(default)]
+        to: Option<String>,
+    },
+    Batch {
+        ops: Vec<Op>,
+    },
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryLink {
+    Supersedes,
+    SupersededBy,
+}
+
+#[derive(Clone, Debug, Default, Deserialize)]
+pub struct UpdateProject {
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub repo_root: Option<String>,
+    #[serde(default, deserialize_with = "present")]
+    pub stale_handoff_days: Option<Option<u32>>,
+    #[serde(default)]
+    pub health_ignore_dirs: Option<Vec<String>>,
+    #[serde(default)]
+    pub health_ignore_issues: Option<Vec<String>>,
+    #[serde(default, deserialize_with = "present")]
+    pub context_min_score: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "present")]
+    pub mcp_server_name: Option<Option<String>>,
+}
+
+fn present<'de, T, D>(d: D) -> std::result::Result<Option<Option<T>>, D::Error>
+where
+    T: Deserialize<'de>,
+    D: serde::Deserializer<'de>,
+{
+    Option::<T>::deserialize(d).map(Some)
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -226,28 +274,41 @@ impl Op {
         store.transact(|doc| self.apply(doc))
     }
 
+    pub fn execute_tracked(self, store: &Store) -> Result<(Value, EngramDocument, Snapshot)> {
+        let ((value, before), snap) = store.transact(|doc| {
+            let before = doc.clone();
+            self.apply(doc).map(|v| (v, before))
+        })?;
+        Ok((value, before, snap))
+    }
+
+    pub fn label(name: &str) -> &'static str {
+        match name {
+            "update_project" => "Edit project settings",
+            "upsert_memory" => "Edit memory",
+            "rename_memory" => "Rename memory entry",
+            "set_memory_status" => "Change memory status",
+            "delete_memory" => "Delete memory entry",
+            "add_architecture_node" => "Edit architecture node",
+            "remove_architecture_node" => "Delete architecture node",
+            "set_node_position" | "reset_all_node_positions" => "Move nodes",
+            "add_dependency" | "remove_dependency" => "Change dependency",
+            "log_decision" => "Log decision",
+            "update_decision" | "replace_relation" => "Edit decision",
+            "delete_decision" => "Delete decision",
+            "upsert_prompt" => "Edit prompt",
+            "delete_prompt" => "Delete prompt",
+            "update_handoff" => "Edit handoff",
+            "replace_path" | "unlink_memory" => "Apply fix",
+            "batch" => "Import",
+            _ => "Change",
+        }
+    }
+
     pub fn apply(self, doc: &mut EngramDocument) -> Result<Value> {
         let now = now_rfc3339();
         match self {
-            Op::UpdateProject {
-                name,
-                description,
-                repo_root,
-            } => {
-                if let Some(name) = name {
-                    if name.trim().is_empty() {
-                        return invalid("project name must not be empty");
-                    }
-                    doc.project.name = name.trim().into();
-                }
-                if let Some(d) = description {
-                    doc.project.description = d.into();
-                }
-                if let Some(root) = repo_root {
-                    doc.project.repo_root = Some(root.trim().to_owned()).filter(|r| !r.is_empty());
-                }
-                Ok(json!({ "project": doc.project.name }))
-            }
+            Op::UpdateProject(u) => update_project(doc, u),
             Op::UpsertMemory(m) => upsert_memory(doc, m, &now),
             Op::RenameMemory { key, new_key } => {
                 let new_key = required("new_key", &new_key)?;
@@ -320,6 +381,55 @@ impl Op {
                     }
                 }
                 Ok(json!({ "deleted": id, "detached_from": detached }))
+            }
+            Op::ResetAllNodePositions => {
+                let mut reset = 0;
+                for n in &mut doc.architecture.nodes {
+                    if n.position.take().is_some() {
+                        reset += 1;
+                    }
+                }
+                Ok(json!({ "reset": reset }))
+            }
+            Op::ReplacePath {
+                subject_kind,
+                subject_id,
+                from,
+                to,
+            } => replace_path(doc, &subject_kind, &subject_id, &from, &to, &now),
+            Op::UnlinkMemory { key, link } => {
+                let m = doc
+                    .memory_entry_mut(&key)
+                    .ok_or_else(|| EngramError::NotFound(format!("memory entry '{key}'")))?;
+                match link {
+                    MemoryLink::Supersedes => m.supersedes = None,
+                    MemoryLink::SupersededBy => m.superseded_by = None,
+                }
+                m.updated_at = now;
+                Ok(json!({ "key": key }))
+            }
+            Op::ReplaceRelation { id, from, to } => {
+                let d = doc
+                    .decision_mut(&id)
+                    .ok_or_else(|| EngramError::NotFound(format!("decision '{id}'")))?;
+                let Some(pos) = d.related.iter().position(|r| *r == from) else {
+                    return Err(EngramError::NotFound(format!("relation '{from}' on {id}")));
+                };
+                match to.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty()) {
+                    Some(t) if !d.related.contains(&t) => d.related[pos] = t,
+                    _ => {
+                        d.related.remove(pos);
+                    }
+                }
+                d.updated_at = now;
+                Ok(json!({ "id": id }))
+            }
+            Op::Batch { ops } => {
+                let mut results = Vec::with_capacity(ops.len());
+                for op in ops {
+                    results.push(op.apply(doc)?);
+                }
+                Ok(json!({ "results": results }))
             }
             Op::SetNodePosition { id, position } => {
                 let n = doc
@@ -424,6 +534,106 @@ impl Op {
             }
         }
     }
+}
+
+fn update_project(doc: &mut EngramDocument, u: UpdateProject) -> Result<Value> {
+    if let Some(name) = u.name {
+        if name.trim().is_empty() {
+            return invalid("project name must not be empty");
+        }
+        doc.project.name = name.trim().into();
+    }
+    if let Some(d) = u.description {
+        doc.project.description = d.into();
+    }
+    if let Some(root) = u.repo_root {
+        doc.project.repo_root = Some(root.trim().to_owned()).filter(|r| !r.is_empty());
+    }
+    let settings = &mut doc.project.settings;
+    if let Some(days) = u.stale_handoff_days {
+        if days == Some(0) {
+            return invalid("stale_handoff_days must be at least 1");
+        }
+        settings.stale_handoff_days = days;
+    }
+    if let Some(dirs) = u.health_ignore_dirs {
+        settings.health_ignore_dirs = clean_list(dirs.into_iter().map(|d| d.trim_matches('/').to_owned()).collect());
+    }
+    if let Some(issues) = u.health_ignore_issues {
+        settings.health_ignore_issues = clean_list(issues);
+    }
+    if let Some(score) = u.context_min_score {
+        if score.is_some_and(|s| !(0.0..=10.0).contains(&s)) {
+            return invalid("context_min_score must be between 0 and 10");
+        }
+        settings.context_min_score = score;
+    }
+    if let Some(name) = u.mcp_server_name {
+        settings.mcp_server_name = name.map(|n| n.trim().to_owned()).filter(|n| !n.is_empty());
+    }
+    Ok(json!({ "project": doc.project.name }))
+}
+
+fn swap_path(list: &mut [String], from: &str, to: &str) -> bool {
+    let mut hit = false;
+    for p in list.iter_mut().filter(|p| p.as_str() == from) {
+        *p = to.to_owned();
+        hit = true;
+    }
+    hit
+}
+
+fn swap_inline(text: &mut Text, from: &str, to: &str) -> bool {
+    let needle = format!("`{from}`");
+    if !text.contains(&needle) {
+        return false;
+    }
+    *text = text.replace(&needle, &format!("`{to}`")).into();
+    true
+}
+
+fn replace_path(doc: &mut EngramDocument, kind: &str, id: &str, from: &str, to: &str, now: &str) -> Result<Value> {
+    let to = required("to", to)?;
+    let missing = || EngramError::NotFound(format!("{kind} '{id}'"));
+    let changed = match kind {
+        "memory" => {
+            let m = doc.memory_entry_mut(id).ok_or_else(missing)?;
+            let hit = swap_path(&mut m.files, from, &to) | swap_inline(&mut m.content, from, &to);
+            if hit {
+                m.updated_at = now.to_owned();
+            }
+            hit
+        }
+        "decision" => {
+            let d = doc.decision_mut(id).ok_or_else(missing)?;
+            let mut hit = swap_path(&mut d.files, from, &to);
+            for t in [&mut d.context, &mut d.decision, &mut d.consequences] {
+                hit |= swap_inline(t, from, &to);
+            }
+            if hit {
+                d.updated_at = now.to_owned();
+            }
+            hit
+        }
+        "node" => {
+            let n = doc.node_mut(id).ok_or_else(missing)?;
+            let hit = n.path.as_deref() == Some(from);
+            if hit {
+                n.path = Some(to.clone());
+            }
+            hit
+        }
+        "handoff" => doc
+            .handoff
+            .progress
+            .iter_mut()
+            .fold(false, |hit, p| swap_path(&mut p.files, from, &to) | hit),
+        other => return invalid(format!("unknown subject kind '{other}'")),
+    };
+    if !changed {
+        return Err(EngramError::NotFound(format!("path '{from}' in {kind} '{id}'")));
+    }
+    Ok(json!({ "from": from, "to": to }))
 }
 
 fn required(field: &str, value: &str) -> Result<String> {
@@ -969,5 +1179,99 @@ mod tests {
             .unwrap_err();
         assert_eq!(err.code(), "not_found");
         assert_eq!(store.load().unwrap().document.revision, 2);
+    }
+
+    #[test]
+    fn reset_all_positions_and_batches_are_atomic() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = Store::new(dir.path().join("p.engram"));
+        store.create("P").unwrap();
+        op(json!({"op":"batch","ops":[
+            {"op":"add_architecture_node","id":"a","type":"module"},
+            {"op":"add_architecture_node","id":"b","type":"module"},
+            {"op":"set_node_position","id":"a","position":{"x":1,"y":2}},
+            {"op":"set_node_position","id":"b","position":{"x":3,"y":4}}
+        ]}))
+        .execute(&store)
+        .unwrap();
+        let rev = store.load().unwrap().document.revision;
+        assert_eq!(rev, 2, "a batch is one transaction");
+
+        let (r, snap) = op(json!({"op":"reset_all_node_positions"})).execute(&store).unwrap();
+        assert_eq!(r["reset"], 2);
+        assert!(snap.document.architecture.nodes.iter().all(|n| n.position.is_none()));
+        assert_eq!(snap.document.revision, rev + 1);
+
+        let err = op(json!({"op":"batch","ops":[
+            {"op":"upsert_memory","key":"k","category":"rule","content":"x"},
+            {"op":"delete_memory","key":"missing"}
+        ]}))
+        .execute(&store)
+        .unwrap_err();
+        assert_eq!(err.code(), "not_found");
+        assert!(
+            store.load().unwrap().document.memory.is_empty(),
+            "a failed batch writes nothing"
+        );
+    }
+
+    #[test]
+    fn project_settings_update_and_clear() {
+        let mut d = doc();
+        op(json!({"op":"update_project","stale_handoff_days":3,"context_min_score":0.3,"mcp_server_name":" mem ","health_ignore_issues":["a","a",""]}))
+            .apply(&mut d)
+            .unwrap();
+        let s = &d.project.settings;
+        assert_eq!(
+            (s.stale_handoff_days, s.context_min_score, s.mcp_server_name.as_deref()),
+            (Some(3), Some(0.3), Some("mem"))
+        );
+        assert_eq!(s.health_ignore_issues, vec!["a"]);
+        op(json!({"op":"update_project","name":"Renamed"}))
+            .apply(&mut d)
+            .unwrap();
+        assert_eq!(
+            d.project.settings.stale_handoff_days,
+            Some(3),
+            "absent fields are left alone"
+        );
+        op(json!({"op":"update_project","stale_handoff_days":null,"context_min_score":null,"mcp_server_name":"","health_ignore_issues":[]}))
+            .apply(&mut d)
+            .unwrap();
+        assert!(d.project.settings.is_default());
+        assert!(op(json!({"op":"update_project","stale_handoff_days":0}))
+            .apply(&mut d)
+            .is_err());
+        assert!(op(json!({"op":"update_project","context_min_score":-1}))
+            .apply(&mut d)
+            .is_err());
+    }
+
+    #[test]
+    fn replace_path_and_relation_ops() {
+        let mut d = doc();
+        op(json!({"op":"upsert_memory","key":"m","category":"rule","content":"See `a.rs` and `a.rs`.","files":["a.rs"]})).apply(&mut d).unwrap();
+        op(json!({"op":"replace_path","subject_kind":"memory","subject_id":"m","from":"a.rs","to":"src/a.rs"}))
+            .apply(&mut d)
+            .unwrap();
+        let m = d.memory_entry("m").unwrap();
+        assert_eq!(m.files, vec!["src/a.rs"]);
+        assert_eq!(m.content.as_str(), "See `src/a.rs` and `src/a.rs`.");
+        assert!(
+            op(json!({"op":"replace_path","subject_kind":"memory","subject_id":"m","from":"zzz","to":"y"}))
+                .apply(&mut d)
+                .is_err()
+        );
+        op(json!({"op":"log_decision","context":"c","decision":"d","related":["x","y"]}))
+            .apply(&mut d)
+            .unwrap();
+        op(json!({"op":"replace_relation","id":"ADR-0001","from":"x","to":"y"}))
+            .apply(&mut d)
+            .unwrap();
+        assert_eq!(d.decisions[0].related, vec!["y"], "duplicates collapse");
+        op(json!({"op":"replace_relation","id":"ADR-0001","from":"y"}))
+            .apply(&mut d)
+            .unwrap();
+        assert!(d.decisions[0].related.is_empty());
     }
 }

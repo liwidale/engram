@@ -35,7 +35,8 @@ pub fn definitions() -> Vec<Value> {
                     "max_tokens": { "type": "integer", "minimum": 200, "maximum": 200000, "default": 4000, "description": "Token budget for the bundle (o200k_base)." },
                     "prompt": { "type": "string", "description": "Optional Prompt Vault entry to append, rendered with prompt_vars." },
                     "prompt_vars": { "type": "object", "additionalProperties": { "type": "string" }, "description": "Values for {{variable}} placeholders." },
-                    "include_handoff": { "type": "boolean", "default": true }
+                    "include_handoff": { "type": "boolean", "default": true },
+                    "format": { "type": "string", "enum": ["xml", "markdown"], "default": "xml", "description": "Output format of the bundle." }
                 },
                 "required": ["task_description"]
             }),

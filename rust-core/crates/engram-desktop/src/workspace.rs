@@ -415,7 +415,8 @@ impl Workspace {
 
     pub fn mcp_config(&self) -> Value {
         let binary = engram_core::client_config::display_path(&Self::mcp_binary());
-        engram_core::client_config::mcp_config(&self.doc.project.name, self.store.path(), &binary)
+        let name = engram_core::client_config::server_name_for(&self.doc);
+        engram_core::client_config::mcp_config(&name, self.store.path(), &binary)
     }
 
     pub fn flush(&mut self) {

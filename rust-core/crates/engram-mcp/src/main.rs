@@ -1,7 +1,7 @@
 mod server;
 mod tools;
 
-use engram_core::context::{build_context, ContextRequest};
+use engram_core::context::{build_context, ContextFormat, ContextRequest};
 use engram_core::health::{audit, Severity};
 use engram_core::{EngramError, Store};
 use server::Server;
@@ -17,7 +17,7 @@ USAGE:
     engram-mcp init <project.engram> [--name <n>]  Create a new .engram file
     engram-mcp audit --file <f> [--repo <dir>] [--json]
                                                    Run Context Health (exit 1 on errors)
-    engram-mcp context --file <f> --task <text> [--max-tokens <n>]
+    engram-mcp context --file <f> --task <text> [--max-tokens <n>] [--markdown]
                                                    Print a context bundle as XML
     engram-mcp --version | --help
 
@@ -32,6 +32,7 @@ struct Args {
     task: Option<String>,
     max_tokens: Option<usize>,
     json: bool,
+    markdown: bool,
 }
 
 fn parse_args() -> Result<Args, String> {
@@ -45,6 +46,7 @@ fn parse_args() -> Result<Args, String> {
         task: None,
         max_tokens: None,
         json: false,
+        markdown: false,
     };
     let mut first = true;
     while let Some(arg) = it.next() {
@@ -58,6 +60,7 @@ fn parse_args() -> Result<Args, String> {
             "--task" => a.task = Some(value(&arg)?),
             "--max-tokens" => a.max_tokens = Some(value(&arg)?.parse().map_err(|_| "--max-tokens must be a number")?),
             "--json" => a.json = true,
+            "--markdown" => a.markdown = true,
             "serve" | "init" | "audit" | "context" if first => a.command = arg,
             s if s.starts_with('-') => return Err(format!("unknown option {s}")),
             _ => a.positional.push(arg),
@@ -158,9 +161,12 @@ fn run_audit(store: &Store, args: &Args) -> CliResult {
 
 fn run_context(store: &Store, args: &Args) -> CliResult {
     let doc = store.load()?.document;
-    let req = ContextRequest::for_task(args.task.clone().unwrap_or_default(), args.max_tokens.unwrap_or(4000));
+    let mut req = ContextRequest::for_task(args.task.clone().unwrap_or_default(), args.max_tokens.unwrap_or(4000));
+    if args.markdown {
+        req.format = ContextFormat::Markdown;
+    }
     let bundle = build_context(&doc, &req);
-    print!("{}", bundle.xml);
+    print!("{}", bundle.output);
     eprintln!(
         "{} tokens ({}), budget {}",
         bundle.tokens, bundle.tokenizer, bundle.max_tokens

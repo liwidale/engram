@@ -47,6 +47,7 @@ pub fn rebuild_if_needed(ws: &mut Workspace) {
         include_handoff: c.include_handoff,
         auto_rank: c.auto_rank,
         min_score: None,
+        format: engram_core::context::ContextFormat::Xml,
     };
     c.bundle = Some(build_context(&ws.doc, &req));
     c.stale = false;
@@ -221,7 +222,7 @@ fn preview(ui: &mut Ui, ws: &mut Workspace) {
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.add(widgets::primary_button(tr("Copy as XML context"))).clicked() {
-                ui.ctx().copy_text(bundle.xml.clone());
+                ui.ctx().copy_text(bundle.output.clone());
                 ws.toast(
                     ToastKind::Success,
                     trf("Context copied, {n} tokens", &[("n", &bundle.tokens)]),
@@ -231,7 +232,7 @@ fn preview(ui: &mut Ui, ws: &mut Workspace) {
     });
     ui.separator();
     egui::ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-        ui.label(highlight(ui, &bundle.xml));
+        ui.label(highlight(ui, &bundle.output));
     });
 }
 

@@ -58,10 +58,10 @@ struct BridgeTests {
         req.prompt = "p"
         req.promptVars = ["x": "it"]
         let bundle = try e.buildContext(req)
-        #expect(bundle.xml.contains("<entry key=\"payments\""))
+        #expect(bundle.output.contains("<entry key=\"payments\""))
         #expect(bundle.items.contains { $0.itemId == "payments" && $0.included && $0.reason == .ranked })
         #expect(bundle.prompt?.missing == [])
-        #expect(bundle.tokens == EngramEngine.countTokens(bundle.xml))
+        #expect(bundle.tokens == EngramEngine.countTokens(bundle.output))
 
         let report = try e.audit(repoRoot: dir.path)
         #expect(report.issues.contains { $0.kind == "broken_path" && $0.severity == .warning })

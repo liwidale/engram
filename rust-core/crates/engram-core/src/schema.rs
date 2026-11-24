@@ -34,8 +34,41 @@ pub struct Project {
     pub description: Text,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub repo_root: Option<String>,
+    #[serde(default, skip_serializing_if = "ProjectSettings::is_default")]
+    pub settings: ProjectSettings,
     pub created_at: String,
     pub updated_at: String,
+}
+
+pub const DEFAULT_STALE_HANDOFF_DAYS: u32 = 7;
+pub const DEFAULT_CONTEXT_MIN_SCORE: f64 = 0.12;
+
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ProjectSettings {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stale_handoff_days: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub health_ignore_dirs: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub health_ignore_issues: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub context_min_score: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mcp_server_name: Option<String>,
+}
+
+impl ProjectSettings {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+
+    pub fn stale_handoff_days(&self) -> u32 {
+        self.stale_handoff_days.unwrap_or(DEFAULT_STALE_HANDOFF_DAYS)
+    }
+
+    pub fn context_min_score(&self) -> f64 {
+        self.context_min_score.unwrap_or(DEFAULT_CONTEXT_MIN_SCORE)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
@@ -417,6 +450,7 @@ impl EngramDocument {
                 name: project_name.into(),
                 description: Text::default(),
                 repo_root: None,
+                settings: ProjectSettings::default(),
                 created_at: now.clone(),
                 updated_at: now,
             },

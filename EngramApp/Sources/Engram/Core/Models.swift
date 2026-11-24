@@ -303,7 +303,8 @@ struct PromptUsage: Decodable, Hashable {
 }
 
 struct ContextBundle: Decodable, Hashable {
-    var xml: String
+    var output: String
+    var format: String
     var tokens: Int
     var maxTokens: Int
     var overBudget: Bool

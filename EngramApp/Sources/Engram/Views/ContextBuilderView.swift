@@ -142,7 +142,7 @@ struct ContextBuilderView: View {
                 }
                 Spacer()
                 Button {
-                    if let xml = bundle?.xml { model.copy(xml, message: "Context copied · \(bundle?.tokens ?? 0) tokens") }
+                    if let output = bundle?.output { model.copy(output, message: "Context copied · \(bundle?.tokens ?? 0) tokens") }
                 } label: {
                     Label("Copy as XML context", systemImage: "doc.on.clipboard")
                 }
@@ -155,7 +155,7 @@ struct ContextBuilderView: View {
             .padding(.vertical, 12)
             Divider()
             ScrollView([.vertical, .horizontal]) {
-                Text(highlighted(bundle?.xml ?? ""))
+                Text(highlighted(bundle?.output ?? ""))
                     .font(Theme.monoSmall)
                     .textSelection(.enabled)
                     .padding(16)
