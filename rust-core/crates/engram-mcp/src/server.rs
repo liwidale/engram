@@ -150,22 +150,12 @@ impl Server {
             None | Some(Value::Null) => Value::Object(Map::new()),
             Some(p) => p,
         };
-        let Some(id) = id else {
-            self.notification(&method, &params);
-            return None;
-        };
+        let id = id?;
         let result = self.request(&method, params);
         Some(match result {
             Ok(result) => json!({ "jsonrpc": "2.0", "id": id, "result": result }),
             Err(e) => error_response(id, e),
         })
-    }
-
-    fn notification(&mut self, method: &str, _params: &Value) {
-        match method {
-            "notifications/initialized" | "notifications/cancelled" | "notifications/roots/list_changed" => {}
-            other => eprintln!("[engram-mcp] ignoring notification {other}"),
-        }
     }
 
     fn request(&mut self, method: &str, params: Value) -> RpcResult {

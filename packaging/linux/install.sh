@@ -18,7 +18,7 @@ while [[ $# -gt 0 ]]; do
     --prefix) PREFIX="$2"; shift 2 ;;
     --uninstall) UNINSTALL=1; shift ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "unknown option: $1" >&2; usage >&2; exit 2 ;;
+    *) echo "error: unknown option $1 — run ./install.sh --help to see the options" >&2; exit 2 ;;
   esac
 done
 

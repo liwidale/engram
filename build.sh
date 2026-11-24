@@ -31,12 +31,12 @@ for arg in "$@"; do
     --test) RUN_TESTS=1 ;;
     --install) INSTALL=1 ;;
     -h|--help) usage; exit 0 ;;
-    *) echo "unknown option: $arg" >&2; usage >&2; exit 2 ;;
+    *) echo "error: unknown option $arg — run ./build.sh --help to see the options" >&2; exit 2 ;;
   esac
 done
 
 log() { printf '\033[1;34m==>\033[0m %s\n' "$*"; }
-need() { command -v "$1" >/dev/null 2>&1 || { echo "missing required tool: $1 ($2)" >&2; exit 1; }; }
+need() { command -v "$1" >/dev/null 2>&1 || { echo "error: $1 is not installed — $2" >&2; exit 1; }; }
 
 need cargo "install Rust from https://rustup.rs"
 need swift "install Xcode or the Command Line Tools"

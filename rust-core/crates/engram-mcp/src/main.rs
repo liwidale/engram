@@ -3,7 +3,7 @@ mod tools;
 
 use engram_core::context::{build_context, ContextRequest};
 use engram_core::health::{audit, Severity};
-use engram_core::Store;
+use engram_core::{EngramError, Store};
 use server::Server;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -77,10 +77,7 @@ fn parse_args() -> Result<Args, String> {
 fn main() -> ExitCode {
     let args = match parse_args() {
         Ok(a) => a,
-        Err(e) => {
-            eprintln!("engram-mcp: {e}\n\n{USAGE}");
-            return ExitCode::from(2);
-        }
+        Err(e) => return fail(&e, "run engram-mcp --help to see the options", 2),
     };
     match args.command.as_str() {
         "help" => {
@@ -94,8 +91,7 @@ fn main() -> ExitCode {
         _ => {}
     }
     let Some(file) = args.file.clone() else {
-        eprintln!("engram-mcp: no .engram file given (use --file or ENGRAM_FILE)\n\n{USAGE}");
-        return ExitCode::from(2);
+        return fail("no .engram file given", "pass --file <path> or set ENGRAM_FILE", 2);
     };
     let store = Store::new(file);
     let result = match args.command.as_str() {
@@ -107,10 +103,27 @@ fn main() -> ExitCode {
     match result {
         Ok(code) => code,
         Err(e) => {
-            eprintln!("engram-mcp: {e}");
-            ExitCode::FAILURE
+            let next = match e.downcast_ref::<EngramError>().map(EngramError::code) {
+                Some("io") => "check the path, or create a file with engram-mcp init <path>",
+                Some("parse") => "fix the JSON or restore the file from Git",
+                Some("conflict") => "choose another path or open the existing file",
+                Some(_) => "check the arguments and try again",
+                None => "try again",
+            };
+            fail(&e.to_string(), next, 1)
         }
     }
+}
+
+fn fail(what: &str, next: &str, code: u8) -> ExitCode {
+    let what = what.trim_end_matches('.');
+    let mut chars = what.chars();
+    let what: String = chars
+        .next()
+        .map(|c| c.to_lowercase().chain(chars).collect())
+        .unwrap_or_default();
+    eprintln!("error: {what} — {next}");
+    ExitCode::from(code)
 }
 
 type CliResult = Result<ExitCode, Box<dyn std::error::Error>>;
@@ -158,7 +171,7 @@ fn run_context(store: &Store, args: &Args) -> CliResult {
 fn serve(store: Store) -> CliResult {
     let snap = store.load()?;
     eprintln!(
-        "[engram-mcp] serving {} (project '{}', revision {})",
+        "engram-mcp: serving {} (project '{}', revision {})",
         store.path().display(),
         snap.document.project.name,
         snap.document.revision
